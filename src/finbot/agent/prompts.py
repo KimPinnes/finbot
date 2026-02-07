@@ -186,10 +186,14 @@ Examples of settlement messages:
 - "settled up 300" → amount=300, payer="user" (assume sender paid if ambiguous)
 - "partner sent me 200" → amount=200, payer="partner"
 - "I transferred 1000 to partner yesterday" → amount=1000, payer="user", event_date=yesterday
+- "paid back 400" → amount=400, payer="user"
+- "settled in full" → amount=null (unknown), payer="user"
+- "I paid back partner" → amount=null, payer="user"
 
 Important:
 - The payer is the person SENDING the money, not receiving it.
 - If it's unclear who paid, leave payer as null — do NOT assume.
+- If the amount is not stated (e.g. "settled in full", "paid back"), leave amount as null.
 - Settlements don't have categories or splits — they're direct payments.
 - The current date is {current_date} (YYYY-MM-DD). Use it to resolve relative dates \
 like "yesterday", "N days ago", or "one week ago". Do NOT invent a different year.

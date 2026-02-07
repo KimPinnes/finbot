@@ -266,6 +266,7 @@ class Orchestrator:
                 initial,
             )
         if _looks_like_query(text) and not re.search(r"\d", text):
+            self._store.clear(user_id)
             initial = LLMResponse()
             return await self._handle_query(user_id, text, session, initial)
 
@@ -341,7 +342,7 @@ class Orchestrator:
         ctx.state = ConversationState.VALIDATING
         self._store.set(user_id, ctx)
 
-        return self._validate(user_id, ctx, llm_response=response)
+        return await self._validate(user_id, ctx, llm_response=response, session=session)
 
     def _extract_parsed(self, response: LLMResponse) -> dict[str, Any] | None:
         """Extract the parsed data dict from LLM tool calls."""
@@ -543,16 +544,9 @@ class Orchestrator:
         amount = settlement_data.get("amount")
         payer = settlement_data.get("payer")
 
-        if amount is None:
-            self._store.clear(user_id)
-            return OrchestratorResult(
-                reply_text="How much is the settlement for?",
-                llm_responses=all_responses,
-            )
-
         # Store settlement info in context for confirmation.
         pending = PendingExpense(
-            amount=float(amount),
+            amount=float(amount) if amount is not None else None,
             currency="ILS",
             category=None,
             description=settlement_data.get("description", "Settlement payment"),
@@ -564,6 +558,19 @@ class Orchestrator:
 
         ctx.pending_expenses = [pending]
         ctx.is_settlement = True
+
+        # If amount is missing, ask via clarification flow (keep state).
+        if pending.amount is None:
+            ctx.state = ConversationState.CLARIFYING
+            ctx.clarification_field = "amount"
+            self._store.set(user_id, ctx)
+            return OrchestratorResult(
+                reply_text=(
+                    "How much is the settlement for?\n"
+                    '<i>Enter an amount or "all" to settle the full balance.</i>'
+                ),
+                llm_responses=all_responses,
+            )
 
         # If payer is missing, ask.
         if not pending.payer:
@@ -612,11 +619,12 @@ class Orchestrator:
 
     # ── Internal: validation ──────────────────────────────────────────────
 
-    def _validate(
+    async def _validate(
         self,
         user_id: int,
         ctx: ConversationContext,
         llm_response: LLMResponse | None = None,
+        session: AsyncSession | None = None,
     ) -> OrchestratorResult:
         """Check required fields; move to CONFIRMING or CLARIFYING."""
         # Lazy imports to break circular dependency:
@@ -633,7 +641,19 @@ class Orchestrator:
             # All fields present — show confirmation.
             ctx.state = ConversationState.CONFIRMING
             self._store.set(user_id, ctx)
+
+            # Load known categories from DB (falls back to defaults).
             known_cats = set(c.lower() for c in settings.default_categories)
+            if session is not None:
+                try:
+                    from finbot.tools.categories import list_categories
+
+                    cat_result = await list_categories(session=session)
+                    db_cats = cat_result.get("categories", [])
+                    known_cats.update(c.lower() for c in db_cats)
+                except Exception:
+                    logger.debug("Could not load categories from DB, using defaults")
+
             summary = format_confirmation_summary(
                 ctx.pending_expenses,
                 known_categories=known_cats,
@@ -673,6 +693,16 @@ class Orchestrator:
     ) -> OrchestratorResult:
         """Merge a clarification answer into the pending data and re-validate."""
         field_name = ctx.clarification_field or "unknown"
+
+        # ── Settlement-specific clarification handling ────────────────
+        is_settlement = getattr(ctx, "is_settlement", False)
+        if is_settlement and ctx.pending_expenses:
+            result = await self._handle_settlement_clarification(
+                user_id, answer, ctx, session, field_name,
+            )
+            if result is not None:
+                return result
+        # ── End settlement-specific handling ──────────────────────────
 
         # Build a summary of current parsed data for the LLM.
         parsed_summary = _expenses_to_summary(ctx.pending_expenses)
@@ -741,7 +771,112 @@ class Orchestrator:
         ctx.clarification_field = None
         self._store.set(user_id, ctx)
 
-        return self._validate(user_id, ctx, llm_response=response)
+        return await self._validate(user_id, ctx, llm_response=response, session=session)
+
+    # ── Internal: settlement clarification ──────────────────────────────
+
+    async def _handle_settlement_clarification(
+        self,
+        user_id: int,
+        answer: str,
+        ctx: ConversationContext,
+        session: AsyncSession,
+        field_name: str,
+    ) -> OrchestratorResult | None:
+        """Handle settlement-specific clarification answers.
+
+        Returns an :class:`OrchestratorResult` if the answer was handled
+        deterministically (amount="all", numeric amount, payer), or
+        ``None`` to fall through to the generic LLM-based merge.
+        """
+        pending = ctx.pending_expenses[0]
+        answer_stripped = answer.strip().lower()
+
+        if field_name == "amount":
+            # Handle "all" / "in full" / "the full amount" → look up balance.
+            if answer_stripped in (
+                "all", "in full", "full", "the full amount",
+                "everything", "the balance", "full balance",
+            ):
+                from finbot.ledger.balance import get_balance as _derive_balance
+
+                partnership = await get_partnership(session, user_id)
+                if partnership is not None:
+                    partner_id = get_partner_id(partnership, user_id)
+                    balance = await _derive_balance(session, user_id, partner_id)
+                    abs_balance = abs(balance)
+                    if abs_balance > 0:
+                        pending.amount = float(abs_balance)
+                    else:
+                        self._store.clear(user_id)
+                        return OrchestratorResult(
+                            reply_text="\u2705 You're already settled up! No balance to pay.",
+                        )
+                else:
+                    self._store.clear(user_id)
+                    return OrchestratorResult(
+                        reply_text="No partnership found. Use /setup first.",
+                    )
+            else:
+                # Try parsing a numeric amount.
+                cleaned = answer_stripped.replace(",", "")
+                try:
+                    pending.amount = float(cleaned)
+                except ValueError:
+                    # Can't parse — re-ask.
+                    return OrchestratorResult(
+                        reply_text=(
+                            "I couldn't understand that amount. "
+                            'Please enter a number or "all" to settle the full balance.'
+                        ),
+                    )
+
+        elif field_name == "payer":
+            if answer_stripped in ("me", "i", "i did", "i paid", "user"):
+                pending.payer = "user"
+            elif answer_stripped in ("partner", "they", "they did", "them"):
+                pending.payer = "partner"
+            else:
+                pending.payer = "user"  # Default to user for ambiguous.
+        else:
+            return None  # Fall through to generic handling.
+
+        # Re-check what's still missing and proceed.
+        ctx.clarification_field = None
+
+        # If amount is still missing, ask for it.
+        if pending.amount is None:
+            ctx.state = ConversationState.CLARIFYING
+            ctx.clarification_field = "amount"
+            self._store.set(user_id, ctx)
+            return OrchestratorResult(
+                reply_text=(
+                    "How much is the settlement for?\n"
+                    '<i>Enter an amount or "all" to settle the full balance.</i>'
+                ),
+            )
+
+        # If payer is still missing, ask for it.
+        if not pending.payer:
+            ctx.state = ConversationState.CLARIFYING
+            ctx.clarification_field = "payer"
+            self._store.set(user_id, ctx)
+            return OrchestratorResult(
+                reply_text="Who made this payment? You or your partner?",
+            )
+
+        # All info present — show confirmation.
+        from finbot.bot.formatters import format_settlement_confirmation
+        from finbot.bot.keyboards import confirmation_keyboard
+
+        ctx.state = ConversationState.CONFIRMING
+        self._store.set(user_id, ctx)
+
+        summary = format_settlement_confirmation(pending)
+        return OrchestratorResult(
+            reply_text=summary,
+            keyboard=confirmation_keyboard(),
+        )
 
     # ── Internal: commit ──────────────────────────────────────────────────
 
@@ -761,6 +896,8 @@ class Orchestrator:
         is_settlement = getattr(ctx, "is_settlement", False)
         event_type = "settlement" if is_settlement else "expense"
 
+        from finbot.ledger.repository import save_category
+
         committed: list[str] = []
         for exp in ctx.pending_expenses:
             if exp.amount is None:
@@ -775,6 +912,10 @@ class Orchestrator:
                 user_id,
                 session,
             )
+
+            # Ensure the category exists in the categories table.
+            if exp.category:
+                await save_category(session, exp.category.strip().lower())
 
             await save_ledger_entry(
                 session,
@@ -1033,6 +1174,85 @@ def _extract_relative_date(text: str) -> date | None:
     return None
 
 
+# Month name → number mapping for _extract_absolute_month_day.
+_MONTH_NAMES: dict[str, int] = {
+    "january": 1, "jan": 1,
+    "february": 2, "feb": 2,
+    "march": 3, "mar": 3,
+    "april": 4, "apr": 4,
+    "may": 5,
+    "june": 6, "jun": 6,
+    "july": 7, "jul": 7,
+    "august": 8, "aug": 8,
+    "september": 9, "sep": 9, "sept": 9,
+    "october": 10, "oct": 10,
+    "november": 11, "nov": 11,
+    "december": 12, "dec": 12,
+}
+
+# Regex: "Feb 1st", "January 15", "march 3rd", "Dec 25th", also "1st of February"
+_MONTH_DAY_RE = re.compile(
+    r"\b(?P<month>"
+    + "|".join(_MONTH_NAMES.keys())
+    + r")\s+(?P<day>\d{1,2})(?:st|nd|rd|th)?\b"
+    r"|\b(?P<day2>\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?(?P<month2>"
+    + "|".join(_MONTH_NAMES.keys())
+    + r")\b",
+    re.IGNORECASE,
+)
+
+# Regex to check if a year is explicitly present near the month/day.
+_HAS_YEAR_RE = re.compile(
+    r"\b(?:20\d{2}|19\d{2})\b",
+)
+
+
+def _extract_absolute_month_day(text: str) -> date | None:
+    """Extract an absolute month+day date without a year (e.g. 'Feb 1st').
+
+    When no year is present in the text, infers the year from the current
+    date.  If the resulting date is more than 6 months in the future, uses
+    the previous year instead.
+    """
+    # If the text contains an explicit 4-digit year, let the LLM handle it.
+    if _HAS_YEAR_RE.search(text):
+        return None
+
+    match = _MONTH_DAY_RE.search(text.lower())
+    if not match:
+        return None
+
+    month_str = match.group("month") or match.group("month2")
+    day_str = match.group("day") or match.group("day2")
+    if not month_str or not day_str:
+        return None
+
+    month = _MONTH_NAMES.get(month_str.lower())
+    if month is None:
+        return None
+    try:
+        day = int(day_str)
+    except ValueError:
+        return None
+
+    today = date.today()
+    year = today.year
+
+    try:
+        candidate = date(year, month, day)
+    except ValueError:
+        return None
+
+    # If candidate is more than 6 months in the future, assume previous year.
+    if (candidate - today).days > 183:
+        try:
+            candidate = date(year - 1, month, day)
+        except ValueError:
+            return None
+
+    return candidate
+
+
 def _extract_numeric_amounts(text: str) -> list[float]:
     """Extract numeric amounts from text, ignoring ISO dates."""
     cleaned = re.sub(r"\b\d{4}-\d{2}-\d{2}\b", " ", text)
@@ -1102,6 +1322,8 @@ def _postprocess_parsed_expenses(
 
     candidates = _extract_numeric_amounts(text)
     rel_date = _extract_relative_date(text)
+    abs_date = _extract_absolute_month_day(text) if rel_date is None else None
+    effective_date = rel_date or abs_date
     single = len(expenses) == 1
 
     for exp in expenses:
@@ -1117,9 +1339,9 @@ def _postprocess_parsed_expenses(
             if amount_val is not None:
                 notes.append(f"Amount auto-corrected from {amount_val:g} to {fixed_amount:g}")
 
-        if rel_date and _should_override_event_date(exp.get("event_date"), rel_date):
-            exp["event_date"] = rel_date.isoformat()
-            notes.append(f"Date auto-corrected to {rel_date.isoformat()}")
+        if effective_date and _should_override_event_date(exp.get("event_date"), effective_date):
+            exp["event_date"] = effective_date.isoformat()
+            notes.append(f"Date auto-corrected to {effective_date.isoformat()}")
 
         if notes:
             exp["notes"] = notes
@@ -1132,6 +1354,8 @@ def _postprocess_settlement(text: str, settlement_data: dict[str, Any]) -> None:
     """Apply deterministic fixes to settlement data."""
     candidates = _extract_numeric_amounts(text)
     rel_date = _extract_relative_date(text)
+    abs_date = _extract_absolute_month_day(text) if rel_date is None else None
+    effective_date = rel_date or abs_date
     notes = settlement_data.get("notes") or []
 
     amount = settlement_data.get("amount")
@@ -1145,9 +1369,11 @@ def _postprocess_settlement(text: str, settlement_data: dict[str, Any]) -> None:
         if amount_val is not None:
             notes.append(f"Amount auto-corrected from {amount_val:g} to {fixed_amount:g}")
 
-    if rel_date and _should_override_event_date(settlement_data.get("event_date"), rel_date):
-        settlement_data["event_date"] = rel_date.isoformat()
-        notes.append(f"Date auto-corrected to {rel_date.isoformat()}")
+    if effective_date and _should_override_event_date(
+        settlement_data.get("event_date"), effective_date
+    ):
+        settlement_data["event_date"] = effective_date.isoformat()
+        notes.append(f"Date auto-corrected to {effective_date.isoformat()}")
 
     if notes:
         settlement_data["notes"] = notes
@@ -1156,7 +1382,11 @@ def _postprocess_settlement(text: str, settlement_data: dict[str, Any]) -> None:
 def _looks_like_settlement(text: str) -> bool:
     """Heuristic: detect partner-to-partner payments."""
     lowered = text.lower()
-    if re.search(r"\bsettle|settled|settlement|settled up\b", lowered):
+    if re.search(r"\b(?:settle|settled|settlement|settled\s+up)\b", lowered):
+        return True
+    if re.search(r"\b(?:paid|pay)\s+back\b", lowered):
+        return True
+    if re.search(r"\bin\s+full\b", lowered):
         return True
     if re.search(r"\bpaid\s+me\b", lowered) or re.search(r"\bsent\s+me\b", lowered):
         return True
@@ -1176,7 +1406,11 @@ def _looks_like_query(text: str) -> bool:
         return True
     if re.search(r"\bcategory\s+totals?\b", lowered):
         return True
-    if re.search(r"\bspend|spent|expenses|expanses\b", lowered):
+    if re.search(r"\bspend|spent|expenses|expanses|entries\b", lowered):
+        return True
+    if re.search(r"\bshow\b.*\b(?:expenses|entries|spending)\b", lowered):
+        return True
+    if re.search(r"\blist\b.*\b(?:expenses|entries)\b", lowered):
         return True
     return bool(re.search(r"\brecent|last\s+few|latest\b", lowered))
 

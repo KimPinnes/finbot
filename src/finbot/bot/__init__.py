@@ -11,6 +11,7 @@ import logging
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.types import BotCommand
 
 from finbot.bot.handlers import router as main_router
 from finbot.bot.middleware import AccessControlMiddleware, DbSessionMiddleware
@@ -88,6 +89,15 @@ async def run_bot() -> None:
         logger.info("FinBot started — polling for updates")
         # Seed default categories into the DB (idempotent).
         await _seed_default_categories()
+        # Register bot commands so they appear in Telegram's "/" menu.
+        await bot.set_my_commands([
+            BotCommand(command="start", description="Show welcome message"),
+            BotCommand(command="help", description="Show usage guide"),
+            BotCommand(command="balance", description="Show current balance"),
+            BotCommand(command="setup", description="Link with your partner"),
+            BotCommand(command="categories", description="View and rename categories"),
+        ])
+        logger.info("Registered bot commands with Telegram")
 
     @dp.shutdown.register
     async def on_shutdown() -> None:

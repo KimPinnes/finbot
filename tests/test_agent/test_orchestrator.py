@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -177,18 +177,24 @@ async def test_missing_payer_triggers_clarification() -> None:
     orch, _ = _make_orchestrator(response, store)
     session = AsyncMock()
 
-    result = await orch.handle_message(
-        user_id=42,
-        text="groceries 300",
-        session=session,
-        raw_input_id=uuid.uuid4(),
-    )
+    # Ensure assume_half_split is off so split stays missing.
+    with patch("finbot.agent.orchestrator.settings") as mock_settings:
+        mock_settings.assume_half_split = False
+        mock_settings.default_categories = ["groceries"]
+        mock_settings.default_currency = "ILS"
+
+        result = await orch.handle_message(
+            user_id=42,
+            text="groceries 300",
+            session=session,
+            raw_input_id=uuid.uuid4(),
+        )
 
     ctx = store.get(42)
     assert ctx.state == ConversationState.CLARIFYING
     assert result.keyboard is None  # No confirm keyboard yet.
-    # Should ask about payer (first missing field).
-    assert "paid" in result.reply_text.lower() or "who" in result.reply_text.lower()
+    # Should ask about split (payer is auto-defaulted to "user").
+    assert "split" in result.reply_text.lower() or "who" in result.reply_text.lower()
 
 
 @pytest.mark.asyncio
@@ -220,12 +226,18 @@ async def test_clarification_answer_merges_and_revalidates() -> None:
     mock_llm.chat = AsyncMock(return_value=merge_response)
     session = AsyncMock()
 
-    result = await orch.handle_message(
-        user_id=42,
-        text="me",
-        session=session,
-        raw_input_id=uuid.uuid4(),
-    )
+    # Ensure assume_half_split is off so split stays missing.
+    with patch("finbot.agent.orchestrator.settings") as mock_settings:
+        mock_settings.assume_half_split = False
+        mock_settings.default_categories = ["groceries"]
+        mock_settings.default_currency = "ILS"
+
+        result = await orch.handle_message(
+            user_id=42,
+            text="me",
+            session=session,
+            raw_input_id=uuid.uuid4(),
+        )
 
     ctx = store.get(42)
     # Still needs split — should be in CLARIFYING again.

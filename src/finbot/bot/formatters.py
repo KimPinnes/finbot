@@ -97,7 +97,6 @@ def format_confirmation_summary(
     lines: list[str] = [header]
 
     for i, exp in enumerate(expenses, 1):
-        label = _build_label(exp.description, exp.category, known_categories)
         amount = exp.amount if exp.amount is not None else "?"
         currency = exp.currency
 
@@ -133,11 +132,28 @@ def format_confirmation_summary(
         # Date display.
         date_str = exp.event_date or "today"
 
-        lines.append(
-            f"{i}. <b>{label}</b> — {currency} {amount}\n"
-            f"   {payer_str}, {split_str}{owe_str}\n"
-            f"   Date: {date_str}"
-        )
+        # Category + description display (explicitly labeled).
+        cat_tag = ""
+        if (
+            exp.category
+            and known_categories is not None
+            and exp.category.lower() not in known_categories
+        ):
+            cat_tag = " [NEW]"
+
+        detail_lines: list[str] = []
+        if exp.category:
+            detail_lines.append(f"   Category: <b>{exp.category}{cat_tag}</b>")
+        if exp.description and exp.description.lower() != (exp.category or "").lower():
+            detail_lines.append(f"   Description: {exp.description}")
+
+        entry_block = f"{i}. {currency} {amount}\n"
+        if detail_lines:
+            entry_block += "\n".join(detail_lines) + "\n"
+        entry_block += f"   {payer_str}, {split_str}{owe_str}\n"
+        entry_block += f"   Date: {date_str}"
+
+        lines.append(entry_block)
         if exp.notes:
             lines.append(f"   Notes: {'; '.join(exp.notes)}")
 
@@ -217,6 +233,24 @@ def _format_balance_result(result: dict[str, Any]) -> str:
     return description or "<i>Balance information unavailable.</i>"
 
 
+def _build_query_label(entry: dict[str, Any], fallback: str = "expense") -> str:
+    """Build a combined label for query/list results.
+
+    Shows ``"description (category)"`` when both exist and differ,
+    or whichever is available.
+    """
+    description = entry.get("description")
+    category = entry.get("category")
+
+    if description and category and description.lower() != category.lower():
+        return f"{description} ({category})"
+    if description:
+        return description
+    if category:
+        return category
+    return fallback
+
+
 def _format_expense_query_result(result: dict[str, Any]) -> str:
     """Format a query_expenses tool result."""
     count = result.get("count", 0)
@@ -249,7 +283,7 @@ def _format_expense_query_result(result: dict[str, Any]) -> str:
         entry_date = entry.get("date", "")
         entry_amount = entry.get("amount", "?")
         entry_currency = entry.get("currency", currency)
-        label = entry.get("description", entry.get("category", "expense"))
+        label = _build_query_label(entry)
         payer = entry.get("payer", "")
         lines.append(
             f"{i}. <b>{label}</b> — {entry_currency} {entry_amount} ({payer}, {entry_date})"
@@ -280,7 +314,7 @@ def format_recent_entries(entries: list[dict[str, Any]]) -> str:
         entry_type = entry.get("type", "expense")
         entry_amount = entry.get("amount", "?")
         entry_currency = entry.get("currency", "ILS")
-        label = entry.get("description", entry.get("category", entry_type))
+        label = _build_query_label(entry, fallback=entry_type)
         payer = entry.get("payer", "")
 
         type_icon = "\U0001f4b8" if entry_type == "settlement" else "\U0001f6d2"

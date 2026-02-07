@@ -225,6 +225,14 @@ async def handle_text(message: Message, session: AsyncSession) -> None:
     if ctx.renaming_category is not None:
         old_name = ctx.renaming_category
         new_name = message.text.strip()
+
+        # Handle cancel commands.
+        if new_name.lower() in ("/cancel", "cancel"):
+            ctx.renaming_category = None
+            _conv_store.set(user_id, ctx)
+            await message.answer("Rename cancelled.")
+            return
+
         ctx.renaming_category = None
         _conv_store.set(user_id, ctx)
 

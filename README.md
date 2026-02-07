@@ -103,6 +103,7 @@ Uses `docker-compose.prod.yml` with Ollama GPU passthrough (requires NVIDIA Cont
    - *"Coffee 25 shekels"* — log an expense
    - *"I paid 100 for groceries, split half"* — expense with split
    - *"She paid me back 50"* — settlement
+   - *"Settled in full"* or *"all"* — settle the full balance (bot will use current balance)
    - *"What did we spend on food this month?"* — query
 
 The agent will parse, ask for confirmation when needed, then commit to the ledger. Use inline keyboards to confirm or cancel.
@@ -115,7 +116,7 @@ The agent will parse, ask for confirmation when needed, then commit to the ledge
 | `/help` | Detailed usage guide |
 | `/balance` | Show the current balance between partners |
 | `/setup <partner_id>` | Create a partnership (one-time setup) |
-| `/categories` | View and rename expense categories |
+| `/categories` | View and rename expense categories (type *cancel* to abort a rename) |
 
 ## Project Structure
 
