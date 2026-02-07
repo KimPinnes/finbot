@@ -13,6 +13,37 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 CB_CONFIRM = "confirm"
 CB_EDIT = "edit"
 CB_CANCEL = "cancel"
+CB_RENAME_CAT = "rencat:"
+
+
+def categories_keyboard(categories: list[str]) -> InlineKeyboardMarkup:
+    """Build an inline keyboard with one button per category for renaming.
+
+    Each button sends callback data ``rencat:<category_name>`` so the
+    handler can identify which category the user wants to rename.
+
+    Args:
+        categories: Sorted list of category name strings.
+
+    Returns:
+        An :class:`InlineKeyboardMarkup` with categories laid out in
+        two-column rows.
+    """
+    buttons: list[list[InlineKeyboardButton]] = []
+    row: list[InlineKeyboardButton] = []
+    for name in categories:
+        row.append(
+            InlineKeyboardButton(
+                text=name,
+                callback_data=f"{CB_RENAME_CAT}{name}",
+            )
+        )
+        if len(row) == 2:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def confirmation_keyboard(entry_id: str = "") -> InlineKeyboardMarkup:

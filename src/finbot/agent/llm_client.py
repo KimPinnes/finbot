@@ -423,11 +423,13 @@ def _tools_to_anthropic(tools: list[ToolSchema] | None) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     for tool in tools:
         func = tool.get("function", {})
-        result.append({
-            "name": func.get("name", ""),
-            "description": func.get("description", ""),
-            "input_schema": func.get("parameters", {}),
-        })
+        result.append(
+            {
+                "name": func.get("name", ""),
+                "description": func.get("description", ""),
+                "input_schema": func.get("parameters", {}),
+            }
+        )
     return result
 
 
@@ -449,15 +451,11 @@ def _estimate_cost_usd(
 
     # Claude Haiku pricing (per 1M tokens).
     if "haiku" in model.lower():
-        return Decimal(str(
-            in_t * 0.25 / 1_000_000 + out_t * 1.25 / 1_000_000
-        ))
+        return Decimal(str(in_t * 0.25 / 1_000_000 + out_t * 1.25 / 1_000_000))
 
     # GPT-4o-mini pricing (per 1M tokens).
     if "gpt-4o-mini" in model.lower():
-        return Decimal(str(
-            in_t * 0.15 / 1_000_000 + out_t * 0.60 / 1_000_000
-        ))
+        return Decimal(str(in_t * 0.15 / 1_000_000 + out_t * 0.60 / 1_000_000))
 
     # Unknown model — return None.
     return None

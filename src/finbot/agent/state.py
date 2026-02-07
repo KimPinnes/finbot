@@ -16,16 +16,15 @@ Provides:
 from __future__ import annotations
 
 import uuid
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
 
-
 # ── Conversation states ───────────────────────────────────────────────────────
 
 
-class ConversationState(str, Enum):
+class ConversationState(StrEnum):
     """States in the agent orchestrator state machine."""
 
     IDLE = "idle"
@@ -142,6 +141,10 @@ class ConversationContext(BaseModel):
 
     #: Whether the current pending items are settlements (Phase 5).
     is_settlement: bool = False
+
+    #: Category being renamed (set by /categories flow).
+    #: When not None, the next text message is treated as the new name.
+    renaming_category: str | None = None
 
     def all_complete(self) -> bool:
         """Return ``True`` if every pending expense has all required fields."""

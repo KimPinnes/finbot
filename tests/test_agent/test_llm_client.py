@@ -318,9 +318,7 @@ async def test_fallback_uses_fallback_on_primary_failure() -> None:
 
     fallback = AsyncMock()
     fallback.chat = AsyncMock(
-        return_value=LLMResponse(
-            content="fallback ok", provider="anthropic", model="haiku"
-        )
+        return_value=LLMResponse(content="fallback ok", provider="anthropic", model="haiku")
     )
 
     client = FallbackLLMClient(primary=primary, fallback=fallback)

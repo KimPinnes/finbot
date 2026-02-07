@@ -4,15 +4,12 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-import pytest
-
 from finbot.agent.state import (
     ConversationContext,
     ConversationState,
     ConversationStore,
     PendingExpense,
 )
-
 
 # ── PendingExpense ─────────────────────────────────────────────────────────────
 
@@ -71,8 +68,9 @@ class TestPendingExpense:
         assert exp.currency == "ILS"
 
     def test_currency_default(self) -> None:
-        exp = PendingExpense(amount=50, category="coffee", payer="user",
-                            split_payer_pct=50, split_other_pct=50)
+        exp = PendingExpense(
+            amount=50, category="coffee", payer="user", split_payer_pct=50, split_other_pct=50
+        )
         assert exp.currency == "ILS"
         assert exp.is_complete()
 
@@ -97,8 +95,11 @@ class TestConversationContext:
         ctx = ConversationContext(
             pending_expenses=[
                 PendingExpense(
-                    amount=100, category="groceries", payer="user",
-                    split_payer_pct=50, split_other_pct=50,
+                    amount=100,
+                    category="groceries",
+                    payer="user",
+                    split_payer_pct=50,
+                    split_other_pct=50,
                 ),
             ]
         )
@@ -116,8 +117,11 @@ class TestConversationContext:
         ctx = ConversationContext(
             pending_expenses=[
                 PendingExpense(
-                    amount=100, category="groceries", payer="user",
-                    split_payer_pct=50, split_other_pct=50,
+                    amount=100,
+                    category="groceries",
+                    payer="user",
+                    split_payer_pct=50,
+                    split_other_pct=50,
                 ),
             ]
         )
@@ -139,8 +143,11 @@ class TestConversationContext:
         ctx = ConversationContext(
             pending_expenses=[
                 PendingExpense(
-                    amount=100, category="groceries", payer="user",
-                    split_payer_pct=50, split_other_pct=50,
+                    amount=100,
+                    category="groceries",
+                    payer="user",
+                    split_payer_pct=50,
+                    split_other_pct=50,
                 ),
                 PendingExpense(amount=200),
             ]
@@ -191,7 +198,7 @@ class TestConversationStore:
     def test_independent_users(self) -> None:
         store = ConversationStore()
         ctx_a = store.get(100)
-        ctx_b = store.get(200)
+        store.get(200)  # Initialize user 200 with default context
         ctx_a.state = ConversationState.CLARIFYING
         store.set(100, ctx_a)
         assert store.get(200).state == ConversationState.IDLE

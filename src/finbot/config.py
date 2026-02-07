@@ -3,6 +3,25 @@
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+_DEFAULT_CATEGORIES = [
+    "clothing",
+    "coffee",
+    "dining",
+    "education",
+    "entertainment",
+    "gas",
+    "gifts",
+    "groceries",
+    "health",
+    "home",
+    "insurance",
+    "personal",
+    "subscriptions",
+    "transport",
+    "travel",
+    "utilities",
+]
+
 
 def _strip_str(v: str | object) -> str | object:
     """Strip whitespace from string env values (common .env copy-paste issue)."""
@@ -70,6 +89,23 @@ class Settings(BaseSettings):
     @classmethod
     def strip_api_keys(cls, v: str | object) -> str | object:
         return _strip_str(v)
+
+    # ── Categories ────────────────────────────────────────────────────
+    default_categories_str: str = Field(
+        default="",
+        alias="DEFAULT_CATEGORIES",
+        description=(
+            "Comma-separated default expense categories seeded into the DB "
+            "on first boot (e.g. 'groceries,dining,utilities')."
+        ),
+    )
+
+    @property
+    def default_categories(self) -> list[str]:
+        """Parsed list of default categories from the env string."""
+        if self.default_categories_str.strip():
+            return [c.strip().lower() for c in self.default_categories_str.split(",") if c.strip()]
+        return list(_DEFAULT_CATEGORIES)
 
     # ── General ───────────────────────────────────────────────────────
     default_currency: str = Field(

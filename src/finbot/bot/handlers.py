@@ -14,6 +14,7 @@ Defines an aiogram :class:`Router` with:
 
 from __future__ import annotations
 
+import contextlib
 import logging
 
 from aiogram import F, Router
@@ -22,7 +23,7 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from finbot.agent import process_callback, process_message
-from finbot.agent.llm_client import LLMResponse, _estimate_cost_usd
+from finbot.agent.llm_client import _estimate_cost_usd
 from finbot.agent.orchestrator import OrchestratorResult
 from finbot.ledger.repository import save_llm_call, save_raw_input
 
@@ -51,14 +52,15 @@ HELP_TEXT = (
     "<u>Log a settlement</u>\n"
     '<i>"I paid partner 500"</i> or <i>"settled up 500"</i>\n\n'
     "<u>Check balance</u>\n"
-    "Use /balance or ask: <i>\"what's the balance?\"</i>\n\n"
+    'Use /balance or ask: <i>"what\'s the balance?"</i>\n\n'
     "<u>Query expenses</u>\n"
     '<i>"how much did we spend on groceries this month?"</i>\n\n'
     "<u>Commands</u>\n"
     "/start — Show welcome message\n"
     "/help — Show this help text\n"
     "/balance — Show current balance\n"
-    "/setup &lt;partner_id&gt; — Link with your partner (one-time setup)"
+    "/setup &lt;partner_id&gt; — Link with your partner (one-time setup)\n"
+    "/categories — View and rename expense categories"
 )
 
 
@@ -157,7 +159,9 @@ async def cmd_setup(message: Message, session: AsyncSession) -> None:
     from finbot.ledger.repository import get_partner_id, save_partnership
 
     partnership, created = await save_partnership(
-        session, user_id, partner_id,
+        session,
+        user_id,
+        partner_id,
     )
 
     if created:
@@ -171,6 +175,30 @@ async def cmd_setup(message: Message, session: AsyncSession) -> None:
             f"A partnership already exists (partner: <code>{existing_partner}</code>).\n"
             "Each user can only have one active partnership."
         )
+
+
+@router.message(Command("categories"))
+async def cmd_categories(message: Message, session: AsyncSession) -> None:
+    """Handle the /categories command — list categories with rename option."""
+    if not message.from_user:
+        return
+
+    from sqlalchemy import select
+
+    from finbot.bot.keyboards import categories_keyboard
+    from finbot.ledger.models import Category
+
+    result = await session.execute(select(Category.name).order_by(Category.name))
+    names = list(result.scalars().all())
+
+    if not names:
+        await message.answer("<i>No categories found.</i>")
+        return
+
+    await message.answer(
+        "<b>Expense categories</b>\n\nTap a category to <b>rename</b> it:",
+        reply_markup=categories_keyboard(names),
+    )
 
 
 # ── General text handler ──────────────────────────────────────────────────────
@@ -189,6 +217,37 @@ async def handle_text(message: Message, session: AsyncSession) -> None:
         return
 
     user_id = message.from_user.id
+
+    # ── Category rename sub-flow ──────────────────────────────────────
+    from finbot.agent.state import conversation_store as _conv_store
+
+    ctx = _conv_store.get(user_id)
+    if ctx.renaming_category is not None:
+        old_name = ctx.renaming_category
+        new_name = message.text.strip()
+        ctx.renaming_category = None
+        _conv_store.set(user_id, ctx)
+
+        if not new_name:
+            await message.answer("Rename cancelled — empty name.")
+            return
+
+        from finbot.ledger.repository import rename_category
+
+        success, ledger_count = await rename_category(session, old_name, new_name)
+        if success:
+            await message.answer(
+                f"\u2705 Renamed <b>{old_name}</b> \u2192 <b>{new_name.lower()}</b>"
+                f" (updated {ledger_count} ledger "
+                f"{'entry' if ledger_count == 1 else 'entries'})."
+            )
+        else:
+            await message.answer(
+                f"\u274c Could not rename <b>{old_name}</b>. "
+                "The category may not exist or the new name is already taken."
+            )
+        return
+    # ── End rename sub-flow ───────────────────────────────────────────
 
     raw_input = await save_raw_input(
         session=session,
@@ -233,7 +292,8 @@ async def handle_text(message: Message, session: AsyncSession) -> None:
 
 @router.callback_query()
 async def handle_callback(
-    callback_query: CallbackQuery, session: AsyncSession,
+    callback_query: CallbackQuery,
+    session: AsyncSession,
 ) -> None:
     """Process inline keyboard callbacks (Confirm / Edit / Cancel).
 
@@ -252,6 +312,29 @@ async def handle_callback(
         user_id,
         callback_data,
     )
+
+    # ── Category rename callback ──────────────────────────────────────
+    from finbot.bot.keyboards import CB_RENAME_CAT
+
+    if callback_data.startswith(CB_RENAME_CAT):
+        cat_name = callback_data[len(CB_RENAME_CAT) :]
+        from finbot.agent.state import conversation_store as _conv_store
+
+        ctx = _conv_store.get(user_id)
+        ctx.renaming_category = cat_name
+        _conv_store.set(user_id, ctx)
+
+        await callback_query.answer()
+        if callback_query.message:
+            # Remove the keyboard from the categories message.
+            with contextlib.suppress(Exception):
+                await callback_query.message.edit_reply_markup(reply_markup=None)
+            await callback_query.message.answer(
+                f"Rename <b>{cat_name}</b> to what?\n"
+                "<i>Send the new category name, or /cancel to abort.</i>"
+            )
+        return
+    # ── End category rename callback ──────────────────────────────────
 
     result: OrchestratorResult = await process_callback(
         user_id=user_id,
@@ -279,10 +362,8 @@ async def handle_callback(
     # Otherwise, send a new message.
     if callback_query.message:
         # Remove the keyboard from the original message.
-        try:
+        with contextlib.suppress(Exception):
             await callback_query.message.edit_reply_markup(reply_markup=None)
-        except Exception:
-            pass  # Best effort.
 
         sent = await callback_query.message.answer(
             result.reply_text,
@@ -302,7 +383,8 @@ async def handle_callback(
 
 
 async def _log_llm_responses(
-    session: AsyncSession, result: OrchestratorResult,
+    session: AsyncSession,
+    result: OrchestratorResult,
 ) -> None:
     """Log all LLM calls embedded in an orchestrator result (ADR-006)."""
     for llm_response in result.llm_responses:
@@ -320,7 +402,9 @@ async def _log_llm_responses(
             is_fallback=is_fallback,
             fallback_reason=None,
             cost_usd=_estimate_cost_usd(
-                provider, llm_response.model,
-                llm_response.input_tokens, llm_response.output_tokens,
+                provider,
+                llm_response.model,
+                llm_response.input_tokens,
+                llm_response.output_tokens,
             ),
         )

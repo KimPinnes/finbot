@@ -44,8 +44,7 @@ def validate_settlement(
     # Payer must be one of the two partners.
     if payer_telegram_id not in (user_a_id, user_b_id):
         errors.append(
-            f"Payer ({payer_telegram_id}) is not one of the partners "
-            f"({user_a_id}, {user_b_id})."
+            f"Payer ({payer_telegram_id}) is not one of the partners ({user_a_id}, {user_b_id})."
         )
 
     # Partners must be distinct.

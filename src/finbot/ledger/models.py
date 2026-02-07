@@ -18,7 +18,6 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     Numeric,
-    String,
     Text,
     UniqueConstraint,
 )
@@ -39,14 +38,10 @@ class RawInput(Base):
 
     __tablename__ = "raw_inputs"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     telegram_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     raw_text: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        nullable=False, server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
 
     # relationship
     ledger_entries: Mapped[list["LedgerEntry"]] = relationship(
@@ -59,9 +54,7 @@ class LedgerEntry(Base):
 
     __tablename__ = "ledger"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     raw_input_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("raw_inputs.id"), nullable=False
     )
@@ -75,12 +68,8 @@ class LedgerEntry(Base):
     event_date: Mapped[date] = mapped_column(Date, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     tags: Mapped[list[str] | None] = mapped_column(ARRAY(Text), nullable=True)
-    interpretation_version: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default="1"
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        nullable=False, server_default=func.now()
-    )
+    interpretation_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
     superseded_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("ledger.id"), nullable=True
     )
@@ -106,9 +95,7 @@ class Category(Base):
     __tablename__ = "categories"
 
     name: Mapped[str] = mapped_column(Text, primary_key=True)
-    created_at: Mapped[datetime] = mapped_column(
-        nullable=False, server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
 
 
 class Partnership(Base):
@@ -116,17 +103,11 @@ class Partnership(Base):
 
     __tablename__ = "partnerships"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_a_telegram_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     user_b_telegram_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    default_currency: Mapped[str] = mapped_column(
-        Text, nullable=False, server_default="ILS"
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        nullable=False, server_default=func.now()
-    )
+    default_currency: Mapped[str] = mapped_column(Text, nullable=False, server_default="ILS")
+    created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
 
     __table_args__ = (
         UniqueConstraint(
@@ -145,19 +126,32 @@ class LLMCall(Base):
 
     __tablename__ = "llm_calls"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     provider: Mapped[str] = mapped_column(Text, nullable=False)
     model: Mapped[str] = mapped_column(Text, nullable=False)
     input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    is_fallback: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default="false"
-    )
+    is_fallback: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     fallback_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(8, 6), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        nullable=False, server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
+
+
+class FailureLog(Base):
+    """Persisted failure log for post-mortem debugging.
+
+    Every caught exception that results in a user-facing error reply is
+    recorded here with the original input, the reply sent, the full
+    traceback, and a short source label for filtering.
+    """
+
+    __tablename__ = "failure_log"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    telegram_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    user_input: Mapped[str] = mapped_column(Text, nullable=False)
+    error_reply: Mapped[str] = mapped_column(Text, nullable=False)
+    traceback: Mapped[str] = mapped_column(Text, nullable=False)
+    failure_source: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())

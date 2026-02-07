@@ -43,7 +43,34 @@ def format_expense_summary(expenses: list[dict[str, Any]]) -> str:
 # ── Confirmation summary (Phase 4) ───────────────────────────────────────────
 
 
-def format_confirmation_summary(expenses: list[PendingExpense]) -> str:
+def _build_label(
+    description: str | None,
+    category: str | None,
+    known_categories: set[str] | None = None,
+) -> str:
+    """Build a display label showing both description and category.
+
+    Returns e.g. ``"Water (utilities)"`` when both exist and differ,
+    or just one when only one is present.  Appends a ``[NEW]`` marker
+    if the category is not in *known_categories*.
+    """
+    cat_tag = ""
+    if category and known_categories is not None and category.lower() not in known_categories:
+        cat_tag = " [NEW]"
+
+    if description and category and description.lower() != category.lower():
+        return f"{description} ({category}{cat_tag})"
+    if description:
+        return description
+    if category:
+        return f"{category}{cat_tag}"
+    return "expense"
+
+
+def format_confirmation_summary(
+    expenses: list[PendingExpense],
+    known_categories: set[str] | None = None,
+) -> str:
     """Format pending expenses into a rich confirmation message.
 
     Shows all resolved fields including a who-owes-whom calculation,
@@ -56,6 +83,8 @@ def format_confirmation_summary(expenses: list[PendingExpense]) -> str:
 
     Args:
         expenses: List of :class:`PendingExpense` objects (should be complete).
+        known_categories: Optional set of known category names. When provided,
+            categories not in this set are visually flagged as new.
 
     Returns:
         An HTML-formatted string suitable for ``parse_mode=HTML``.
@@ -68,7 +97,7 @@ def format_confirmation_summary(expenses: list[PendingExpense]) -> str:
     lines: list[str] = [header]
 
     for i, exp in enumerate(expenses, 1):
-        label = exp.description or exp.category or "expense"
+        label = _build_label(exp.description, exp.category, known_categories)
         amount = exp.amount if exp.amount is not None else "?"
         currency = exp.currency
 
@@ -200,19 +229,13 @@ def _format_expense_query_result(result: dict[str, Any]) -> str:
         return "<i>No matching expenses found.</i>"
 
     if categories:
-        header = (
-            f"\U0001f50d <b>Totals by category</b> "
-            f"(total <b>{currency} {total}</b>):\n"
-        )
+        header = f"\U0001f50d <b>Totals by category</b> (total <b>{currency} {total}</b>):\n"
         lines: list[str] = [header]
         for i, item in enumerate(categories, 1):
             cat = item.get("category", "uncategorized")
             cat_total = item.get("total", "0")
             cat_count = item.get("count", 0)
-            lines.append(
-                f"{i}. <b>{cat}</b> — {currency} {cat_total} "
-                f"({cat_count} entries)"
-            )
+            lines.append(f"{i}. <b>{cat}</b> — {currency} {cat_total} ({cat_count} entries)")
         return "\n".join(lines)
 
     header = (
@@ -229,8 +252,7 @@ def _format_expense_query_result(result: dict[str, Any]) -> str:
         label = entry.get("description", entry.get("category", "expense"))
         payer = entry.get("payer", "")
         lines.append(
-            f"{i}. <b>{label}</b> — {entry_currency} {entry_amount} "
-            f"({payer}, {entry_date})"
+            f"{i}. <b>{label}</b> — {entry_currency} {entry_amount} ({payer}, {entry_date})"
         )
 
     if count > 10:

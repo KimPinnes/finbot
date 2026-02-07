@@ -15,8 +15,10 @@ converts into a Telegram reply.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import re
+import traceback as tb_module
 import uuid
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
@@ -31,10 +33,8 @@ from finbot.agent.llm_client import (
     ChatMessage,
     LLMClient,
     LLMResponse,
-    ToolCall,
 )
 from finbot.agent.prompts import (
-    CLARIFY_FIELD_PROMPT,
     MERGE_CLARIFICATION_PROMPT,
     PARSE_EXPENSE_PROMPT,
     PARSE_SETTLEMENT_PROMPT,
@@ -52,6 +52,7 @@ from finbot.config import settings
 from finbot.ledger.repository import (
     get_partner_id,
     get_partnership,
+    save_failure,
     save_ledger_entry,
 )
 from finbot.tools import default_registry
@@ -68,14 +69,20 @@ logger = logging.getLogger(__name__)
 # Message shown when LLM is unreachable due to invalid/missing API key or Ollama down.
 _LLM_AUTH_REPLY = (
     "I can't reach the AI: the fallback API key is invalid or missing. "
-    "Either start Ollama locally (ollama serve) or set a valid OPENAI_API_KEY or ANTHROPIC_API_KEY in your .env."
+    "Either start Ollama locally (ollama serve) or set a valid "
+    "OPENAI_API_KEY or ANTHROPIC_API_KEY in your .env."
 )
 
 
 def _is_llm_auth_error(exc: BaseException) -> bool:
     """True if the exception looks like an LLM API auth error (401 / invalid key)."""
     msg = str(exc).lower()
-    return "401" in msg or "invalid_api_key" in msg or "incorrect api key" in msg or "unauthorized" in msg
+    return (
+        "401" in msg
+        or "invalid_api_key" in msg
+        or "incorrect api key" in msg
+        or "unauthorized" in msg
+    )
 
 
 def _return_auth_error(store: ConversationStore, user_id: int) -> OrchestratorResult:
@@ -178,7 +185,10 @@ class Orchestrator:
         # clarification question — merge it into the pending data.
         if ctx.state == ConversationState.CLARIFYING:
             return await self._handle_clarification_answer(
-                user_id, text, ctx, session,
+                user_id,
+                text,
+                ctx,
+                session,
             )
 
         # Otherwise, start a fresh parsing round.
@@ -249,7 +259,11 @@ class Orchestrator:
         if _looks_like_settlement(text):
             initial = LLMResponse()
             return await self._handle_settlement(
-                user_id, text, ctx, session, initial,
+                user_id,
+                text,
+                ctx,
+                session,
+                initial,
             )
         if _looks_like_query(text) and not re.search(r"\d", text):
             initial = LLMResponse()
@@ -263,18 +277,22 @@ class Orchestrator:
             if _is_llm_auth_error(e):
                 return _return_auth_error(self._store, user_id)
             logger.exception("LLM call failed for message: %s", text[:100])
-            self._store.clear(user_id)
-            return OrchestratorResult(
-                reply_text=(
-                    "I'm having trouble processing your message right now. "
-                    "Please try again in a moment."
-                ),
+            reply = (
+                "I'm having trouble processing your message right now. "
+                "Please try again in a moment."
             )
+            await save_failure(
+                session,
+                telegram_user_id=user_id,
+                user_input=text,
+                error_reply=reply,
+                traceback_str=tb_module.format_exc(),
+                failure_source="llm_parse",
+            )
+            self._store.clear(user_id)
+            return OrchestratorResult(reply_text=reply)
 
-        logger.info(
-            "LLM request: user_message=%s",
-            text if len(text) <= 200 else text[:200] + "...",
-        )
+        _log_user_message(logger, "LLM request", text)
         logger.info("LLM response: %s", _format_llm_response_for_log(response))
 
         parsed = self._extract_parsed(response)
@@ -285,14 +303,16 @@ class Orchestrator:
         has_expenses = parsed and parsed.get("expenses")
         if parsed is not None and not has_expenses:
             intent = parsed.get("intent", "unknown")
-            if intent == "query" or (
-                intent in ("unknown", "greeting") and _looks_like_query(text)
-            ):
+            if intent == "query" or (intent in ("unknown", "greeting") and _looks_like_query(text)):
                 self._store.clear(user_id)
                 return await self._handle_query(user_id, text, session, response)
             if intent == "settlement":
                 return await self._handle_settlement(
-                    user_id, text, ctx, session, response,
+                    user_id,
+                    text,
+                    ctx,
+                    session,
+                    response,
                 )
             if intent in ("greeting", "unknown"):
                 self._store.clear(user_id)
@@ -316,10 +336,7 @@ class Orchestrator:
             )
 
         # Build PendingExpense objects.
-        ctx.pending_expenses = [
-            PendingExpense.from_parsed(exp)
-            for exp in parsed["expenses"]
-        ]
+        ctx.pending_expenses = [PendingExpense.from_parsed(exp) for exp in parsed["expenses"]]
         _default_missing_payers_to_user(ctx.pending_expenses)
         ctx.state = ConversationState.VALIDATING
         self._store.set(user_id, ctx)
@@ -337,19 +354,15 @@ class Orchestrator:
         return response.tool_calls[0].arguments
 
     def _handle_non_expense_intent(
-        self, intent: str, response: LLMResponse,
+        self,
+        intent: str,
+        response: LLMResponse,
     ) -> OrchestratorResult:
         """Build a reply for non-expense intents (greeting / unknown)."""
         if intent == "greeting":
-            text = (
-                response.content
-                or "Hello! Send me an expense to track."
-            )
+            text = response.content or "Hello! Send me an expense to track."
         else:
-            text = (
-                response.content
-                or "I didn't understand that. Try describing an expense."
-            )
+            text = response.content or "I didn't understand that. Try describing an expense."
         return OrchestratorResult(reply_text=text, llm_responses=[response])
 
     # ── Internal: query handling (Phase 5) ────────────────────────────────
@@ -384,15 +397,21 @@ class Orchestrator:
             response = await self._llm.chat(messages=messages, tools=tools)
         except Exception:
             logger.exception("LLM query call failed for: %s", text[:100])
+            reply = "I had trouble processing your query. Please try again in a moment."
+            await save_failure(
+                session,
+                telegram_user_id=user_id,
+                user_input=text,
+                error_reply=reply,
+                traceback_str=tb_module.format_exc(),
+                failure_source="llm_query",
+            )
             return OrchestratorResult(
-                reply_text=(
-                    "I had trouble processing your query. "
-                    "Please try again in a moment."
-                ),
+                reply_text=reply,
                 llm_responses=[initial_response],
             )
 
-        logger.info("LLM query request: user_message=%s", text if len(text) <= 200 else text[:200] + "...")
+        _log_user_message(logger, "LLM query request", text)
         logger.info("LLM query response: %s", _format_llm_response_for_log(response))
 
         all_responses = [initial_response, response]
@@ -408,11 +427,21 @@ class Orchestrator:
 
                 try:
                     result = await default_registry.execute_tool(
-                        tool_name, tool_args,
+                        tool_name,
+                        tool_args,
                     )
                 except Exception:
                     logger.exception("Tool %s failed", tool_name)
-                    result = {"error": f"Tool {tool_name} failed."}
+                    error_msg = f"Tool {tool_name} failed."
+                    await save_failure(
+                        session,
+                        telegram_user_id=user_id,
+                        user_input=text,
+                        error_reply=error_msg,
+                        traceback_str=tb_module.format_exc(),
+                        failure_source="tool_exec",
+                    )
+                    result = {"error": error_msg}
 
                 if isinstance(result, dict):
                     if "error" in result:
@@ -472,16 +501,22 @@ class Orchestrator:
             response = await self._llm.chat(messages=messages, tools=tools)
         except Exception:
             logger.exception("LLM settlement parse failed: %s", text[:100])
+            reply = "I had trouble processing your settlement. Please try again."
+            await save_failure(
+                session,
+                telegram_user_id=user_id,
+                user_input=text,
+                error_reply=reply,
+                traceback_str=tb_module.format_exc(),
+                failure_source="llm_settlement",
+            )
             self._store.clear(user_id)
             return OrchestratorResult(
-                reply_text=(
-                    "I had trouble processing your settlement. "
-                    "Please try again."
-                ),
+                reply_text=reply,
                 llm_responses=[initial_response],
             )
 
-        logger.info("LLM settlement request: user_message=%s", text if len(text) <= 200 else text[:200] + "...")
+        _log_user_message(logger, "LLM settlement request", text)
         logger.info("LLM settlement response: %s", _format_llm_response_for_log(response))
 
         all_responses = [initial_response, response]
@@ -598,7 +633,11 @@ class Orchestrator:
             # All fields present — show confirmation.
             ctx.state = ConversationState.CONFIRMING
             self._store.set(user_id, ctx)
-            summary = format_confirmation_summary(ctx.pending_expenses)
+            known_cats = set(c.lower() for c in settings.default_categories)
+            summary = format_confirmation_summary(
+                ctx.pending_expenses,
+                known_categories=known_cats,
+            )
             return OrchestratorResult(
                 reply_text=summary,
                 keyboard=confirmation_keyboard(),
@@ -614,7 +653,9 @@ class Orchestrator:
         self._store.set(user_id, ctx)
 
         question = _build_clarification_question(
-            field_name, idx, ctx.pending_expenses,
+            field_name,
+            idx,
+            ctx.pending_expenses,
         )
         return OrchestratorResult(
             reply_text=question,
@@ -655,32 +696,42 @@ class Orchestrator:
             logger.exception("LLM merge call failed for answer: %s", answer[:100])
             # Re-ask the same question.
             question = _build_clarification_question(
-                field_name, 0, ctx.pending_expenses,
+                field_name,
+                0,
+                ctx.pending_expenses,
             )
-            return OrchestratorResult(
-                reply_text=(
-                    "I had trouble processing your answer. "
-                    f"Could you try again?\n\n{question}"
-                ),
+            reply = f"I had trouble processing your answer. Could you try again?\n\n{question}"
+            await save_failure(
+                session,
+                telegram_user_id=user_id,
+                user_input=answer,
+                error_reply=reply,
+                traceback_str=tb_module.format_exc(),
+                failure_source="llm_merge",
             )
+            return OrchestratorResult(reply_text=reply)
 
-        logger.info("LLM clarification merge request: field=%s, user_answer=%s", field_name, answer if len(answer) <= 200 else answer[:200] + "...")
+        logger.info(
+            "LLM clarification merge request: field=%s, user_answer=%s",
+            field_name,
+            answer if len(answer) <= 200 else answer[:200] + "...",
+        )
         logger.info("LLM clarification merge response: %s", _format_llm_response_for_log(response))
 
         parsed = self._extract_parsed(response)
 
         if parsed and parsed.get("expenses"):
             # Update the pending expenses with merged data.
-            new_expenses = [
-                PendingExpense.from_parsed(exp) for exp in parsed["expenses"]
-            ]
+            new_expenses = [PendingExpense.from_parsed(exp) for exp in parsed["expenses"]]
             # Preserve count: if LLM returns different count, keep original.
             if len(new_expenses) == len(ctx.pending_expenses):
                 ctx.pending_expenses = new_expenses
             else:
                 # LLM returned wrong count — try to merge field manually.
                 _merge_field_manually(
-                    ctx.pending_expenses, field_name, answer,
+                    ctx.pending_expenses,
+                    field_name,
+                    answer,
                 )
         else:
             # LLM didn't return tool calls — try manual merge.
@@ -720,7 +771,9 @@ class Orchestrator:
 
             event_date = _resolve_date(exp.event_date)
             payer_tid = await _resolve_payer_id(
-                exp.payer or "user", user_id, session,
+                exp.payer or "user",
+                user_id,
+                session,
             )
 
             await save_ledger_entry(
@@ -736,10 +789,8 @@ class Orchestrator:
                 event_date=event_date,
                 description=exp.description,
             )
-            label = exp.description or exp.category or event_type
-            committed.append(
-                f"  {exp.currency} {exp.amount} — {label}"
-            )
+            label = _build_commit_label(exp.description, exp.category, event_type)
+            committed.append(f"  {exp.currency} {exp.amount} — {label}")
 
         ctx.state = ConversationState.COMMITTING
         self._store.set(user_id, ctx)
@@ -748,15 +799,9 @@ class Orchestrator:
         lines = "\n".join(committed)
 
         if is_settlement:
-            reply = (
-                f"\u2705 <b>Settlement recorded:</b>\n"
-                f"{lines}"
-            )
+            reply = f"\u2705 <b>Settlement recorded:</b>\n{lines}"
         else:
-            reply = (
-                f"\u2705 <b>Committed {count} expense(s) to the ledger:</b>\n"
-                f"{lines}"
-            )
+            reply = f"\u2705 <b>Committed {count} expense(s) to the ledger:</b>\n{lines}"
 
         # Reset to IDLE.
         self._store.clear(user_id)
@@ -804,6 +849,27 @@ class Orchestrator:
 # ── Helper functions ──────────────────────────────────────────────────────────
 
 
+def _log_user_message(log: logging.Logger, label: str, text: str) -> None:
+    """Log a user message, truncating if longer than 200 chars."""
+    truncated = text if len(text) <= 200 else text[:200] + "..."
+    log.info("%s: user_message=%s", label, truncated)
+
+
+def _build_commit_label(
+    description: str | None,
+    category: str | None,
+    fallback: str = "expense",
+) -> str:
+    """Build a display label for the commit message.
+
+    Shows both description and category when they differ, e.g.
+    ``"Water (utilities)"``.  Falls back to whichever is available.
+    """
+    if description and category and description.lower() != category.lower():
+        return f"{description} ({category})"
+    return description or category or fallback
+
+
 def _build_clarification_question(
     field_name: str,
     expense_idx: int,
@@ -833,14 +899,12 @@ def _build_clarification_question(
     templates: dict[str, str] = {
         "payer": f"{prefix}Who paid{context}? You or your partner?".strip(),
         "category": f"{prefix}What category is this expense{context}? "
-                    f"(e.g. groceries, gas, dining, coffee)".strip(),
+        f"(e.g. groceries, gas, dining, coffee)".strip(),
         "split_payer_pct": (
-            f"{prefix}How should this expense{context} be split? "
-            f"(e.g. 50/50, 70/30, or 100/0)"
+            f"{prefix}How should this expense{context} be split? (e.g. 50/50, 70/30, or 100/0)"
         ).strip(),
         "split_other_pct": (
-            f"{prefix}How should this expense{context} be split? "
-            f"(e.g. 50/50, 70/30, or 100/0)"
+            f"{prefix}How should this expense{context} be split? (e.g. 50/50, 70/30, or 100/0)"
         ).strip(),
         "amount": f"{prefix}What was the amount{context}?".strip(),
     }
@@ -901,10 +965,8 @@ def _merge_field_manually(
             exp.category = answer_stripped or None
 
         elif field_name == "amount":
-            try:
+            with contextlib.suppress(ValueError):
                 exp.amount = float(answer_stripped.replace(",", ""))
-            except ValueError:
-                pass  # Leave as None — will be re-asked.
 
 
 def _parse_split(text: str) -> tuple[float | None, float | None]:
@@ -1053,9 +1115,7 @@ def _postprocess_parsed_expenses(
         if fixed_amount is not None and fixed_amount != amount_val:
             exp["amount"] = fixed_amount
             if amount_val is not None:
-                notes.append(
-                    f"Amount auto-corrected from {amount_val:g} to {fixed_amount:g}"
-                )
+                notes.append(f"Amount auto-corrected from {amount_val:g} to {fixed_amount:g}")
 
         if rel_date and _should_override_event_date(exp.get("event_date"), rel_date):
             exp["event_date"] = rel_date.isoformat()
@@ -1083,9 +1143,7 @@ def _postprocess_settlement(text: str, settlement_data: dict[str, Any]) -> None:
     if fixed_amount is not None and fixed_amount != amount_val:
         settlement_data["amount"] = fixed_amount
         if amount_val is not None:
-            notes.append(
-                f"Amount auto-corrected from {amount_val:g} to {fixed_amount:g}"
-            )
+            notes.append(f"Amount auto-corrected from {amount_val:g} to {fixed_amount:g}")
 
     if rel_date and _should_override_event_date(settlement_data.get("event_date"), rel_date):
         settlement_data["event_date"] = rel_date.isoformat()
@@ -1104,9 +1162,7 @@ def _looks_like_settlement(text: str) -> bool:
         return True
     if re.search(r"\btransfer(?:red)?\b", lowered) or "reimbursed" in lowered:
         return True
-    if re.search(r"\bto\s+me\b", lowered) or re.search(r"\bto\s+you\b", lowered):
-        return True
-    return False
+    return bool(re.search(r"\bto\s+me\b", lowered) or re.search(r"\bto\s+you\b", lowered))
 
 
 def _looks_like_query(text: str) -> bool:
@@ -1122,9 +1178,7 @@ def _looks_like_query(text: str) -> bool:
         return True
     if re.search(r"\bspend|spent|expenses|expanses\b", lowered):
         return True
-    if re.search(r"\brecent|last\s+few|latest\b", lowered):
-        return True
-    return False
+    return bool(re.search(r"\brecent|last\s+few|latest\b", lowered))
 
 
 def _resolve_date(date_str: str | None) -> date:

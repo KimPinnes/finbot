@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import date
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
@@ -10,7 +9,6 @@ from uuid import uuid4
 import pytest
 
 from finbot.tools.settlements import log_settlement, validate_settlement_tool
-
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -37,7 +35,8 @@ class TestLogSettlement:
     async def test_missing_session_returns_error(self) -> None:
         """log_settlement without session should return an error."""
         result = await log_settlement(
-            amount=500, payer="user",
+            amount=500,
+            payer="user",
         )
         assert "error" in result
 

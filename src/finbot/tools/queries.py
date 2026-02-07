@@ -19,8 +19,10 @@ from finbot.ledger.balance import get_balance as _derive_balance
 from finbot.ledger.repository import (
     get_category_totals,
     get_filtered_entries,
-    get_partnership,
     get_partner_id,
+    get_partnership,
+)
+from finbot.ledger.repository import (
     get_recent_entries as _fetch_recent,
 )
 from finbot.tools.registry import default_registry
@@ -29,8 +31,7 @@ from finbot.tools.registry import default_registry
 @default_registry.tool(
     name="get_balance",
     description=(
-        "Get the current balance between the two partners. "
-        "Returns who owes whom and the amount."
+        "Get the current balance between the two partners. Returns who owes whom and the amount."
     ),
     parameters_schema={
         "type": "object",
@@ -171,8 +172,7 @@ async def query_expenses(
             event_type=event_type,
         )
         categories = [
-            {"category": cat, "total": str(total), "count": count}
-            for cat, total, count in rows
+            {"category": cat, "total": str(total), "count": count} for cat, total, count in rows
         ]
         total = sum(Decimal(str(item["total"])) for item in categories)
         currency = partnership.default_currency
@@ -187,10 +187,7 @@ async def query_expenses(
         filter_desc = ", ".join(parts) if parts else "all entries"
 
         entry_count = sum(item["count"] for item in categories)
-        description = (
-            f"Found {entry_count} entries ({filter_desc}) "
-            f"totalling {currency} {total}."
-        )
+        description = f"Found {entry_count} entries ({filter_desc}) totalling {currency} {total}."
 
         return {
             "total": str(total),
@@ -219,15 +216,17 @@ async def query_expenses(
     for e in entries:
         label = e.description or e.category or e.event_type
         payer_label = "you" if e.payer_telegram_id == user_id else "partner"
-        entry_summaries.append({
-            "date": str(e.event_date),
-            "type": e.event_type,
-            "amount": str(e.amount),
-            "currency": e.currency,
-            "category": e.category,
-            "description": label,
-            "payer": payer_label,
-        })
+        entry_summaries.append(
+            {
+                "date": str(e.event_date),
+                "type": e.event_type,
+                "amount": str(e.amount),
+                "currency": e.currency,
+                "category": e.category,
+                "description": label,
+                "payer": payer_label,
+            }
+        )
 
     # Build description.
     parts: list[str] = []
@@ -239,10 +238,7 @@ async def query_expenses(
         parts.append(f"to: {date_to}")
     filter_desc = ", ".join(parts) if parts else "all entries"
 
-    description = (
-        f"Found {len(entries)} entries ({filter_desc}) "
-        f"totalling {currency} {total}."
-    )
+    description = f"Found {len(entries)} entries ({filter_desc}) totalling {currency} {total}."
 
     return {
         "total": str(total),
@@ -301,15 +297,17 @@ async def get_recent_entries(
     for e in entries:
         label = e.description or e.category or e.event_type
         payer_label = "you" if e.payer_telegram_id == user_id else "partner"
-        entry_summaries.append({
-            "date": str(e.event_date),
-            "type": e.event_type,
-            "amount": str(e.amount),
-            "currency": e.currency,
-            "category": e.category,
-            "description": label,
-            "payer": payer_label,
-        })
+        entry_summaries.append(
+            {
+                "date": str(e.event_date),
+                "type": e.event_type,
+                "amount": str(e.amount),
+                "currency": e.currency,
+                "category": e.category,
+                "description": label,
+                "payer": payer_label,
+            }
+        )
 
     return {
         "count": len(entry_summaries),

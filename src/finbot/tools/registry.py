@@ -156,14 +156,16 @@ class ToolRegistry:
         """
         schemas: list[dict[str, Any]] = []
         for tool_def in self._tools.values():
-            schemas.append({
-                "type": "function",
-                "function": {
-                    "name": tool_def.name,
-                    "description": tool_def.description,
-                    "parameters": tool_def.parameters_schema,
-                },
-            })
+            schemas.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool_def.name,
+                        "description": tool_def.description,
+                        "parameters": tool_def.parameters_schema,
+                    },
+                }
+            )
         return schemas
 
     async def execute_tool(

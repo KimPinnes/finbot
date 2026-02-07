@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
-from uuid import uuid4
 
 import pytest
 
@@ -14,7 +13,6 @@ from finbot.ledger.balance import (
     _settlement_effect,
     get_balance,
 )
-
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -219,7 +217,10 @@ class TestGetBalance:
         )
         session = AsyncMock()
         result = await get_balance(
-            session, USER_A, USER_B, entries=[expense, settlement],
+            session,
+            USER_A,
+            USER_B,
+            entries=[expense, settlement],
         )
         assert result == Decimal("50")
 
@@ -239,7 +240,10 @@ class TestGetBalance:
         )
         session = AsyncMock()
         result = await get_balance(
-            session, USER_A, USER_B, entries=[expense, settlement],
+            session,
+            USER_A,
+            USER_B,
+            entries=[expense, settlement],
         )
         assert result == Decimal("0")
 

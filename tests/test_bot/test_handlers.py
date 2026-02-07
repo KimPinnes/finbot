@@ -19,6 +19,7 @@ from finbot.agent.orchestrator import (
     _looks_like_settlement,
     _postprocess_parsed_expenses,
 )
+from finbot.bot.formatters import format_query_result
 from finbot.bot.handlers import (
     cmd_balance,
     cmd_help,
@@ -26,7 +27,6 @@ from finbot.bot.handlers import (
     handle_callback,
     handle_text,
 )
-from finbot.bot.formatters import format_query_result
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -46,7 +46,8 @@ def _make_message(text: str = "", user_id: int = 111) -> MagicMock:
 
 
 def _make_callback_query(
-    data: str = "confirm:", user_id: int = 111,
+    data: str = "confirm:",
+    user_id: int = 111,
 ) -> MagicMock:
     """Create a minimal mock of an aiogram ``CallbackQuery``."""
     cq = AsyncMock()
@@ -216,7 +217,8 @@ async def test_handle_text_with_keyboard() -> None:
 
     fake_keyboard = MagicMock()
     orch_result = _make_orchestrator_result(
-        reply_text="Confirm?", keyboard=fake_keyboard,
+        reply_text="Confirm?",
+        keyboard=fake_keyboard,
     )
 
     with (
@@ -359,7 +361,8 @@ async def test_handle_callback_edit_message_id() -> None:
     session = AsyncMock()
 
     orch_result = _make_orchestrator_result(
-        reply_text="Updated.", edit_message_id=555,
+        reply_text="Updated.",
+        edit_message_id=555,
     )
 
     with patch(

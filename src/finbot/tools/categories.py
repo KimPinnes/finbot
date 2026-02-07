@@ -11,6 +11,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from finbot.config import settings
 from finbot.ledger.models import Category
 from finbot.ledger.repository import save_category as _save_category
 from finbot.tools.registry import default_registry
@@ -28,12 +29,17 @@ from finbot.tools.registry import default_registry
         "required": [],
     },
 )
-async def list_categories(*, session: AsyncSession | None = None) -> dict:
+async def list_categories(
+    *,
+    session: AsyncSession | None = None,
+    user_id: int | None = None,
+) -> dict:
     """Return all expense categories from the database.
 
     Args:
         session: Async database session.  If ``None`` (e.g. during tests or
             when the DB is unavailable), returns a set of default categories.
+        user_id: Injected by orchestrator; unused (categories are global).
 
     Returns:
         A dict with a ``categories`` key containing a list of category name
@@ -42,18 +48,16 @@ async def list_categories(*, session: AsyncSession | None = None) -> dict:
     if session is None:
         # Return sensible defaults when no DB session is available.
         return {
-            "categories": _default_categories(),
+            "categories": list(settings.default_categories),
         }
 
-    result = await session.execute(
-        select(Category.name).order_by(Category.name)
-    )
+    result = await session.execute(select(Category.name).order_by(Category.name))
     names = list(result.scalars().all())
 
     # If the categories table is empty, return defaults.
     if not names:
         return {
-            "categories": _default_categories(),
+            "categories": list(settings.default_categories),
         }
 
     return {"categories": names}
@@ -81,6 +85,7 @@ async def create_category(
     *,
     name: str,
     session: AsyncSession | None = None,
+    user_id: int | None = None,
 ) -> dict:
     """Add a new expense category to the database.
 
@@ -91,6 +96,7 @@ async def create_category(
     Args:
         name: The category name to create.
         session: Async database session.  If ``None``, returns an error.
+        user_id: Injected by orchestrator; unused (categories are global).
 
     Returns:
         A dict with ``success``, ``name``, and ``message`` keys.
@@ -116,25 +122,3 @@ async def create_category(
         "name": category.name,
         "message": f"Category '{category.name}' already exists.",
     }
-
-
-def _default_categories() -> list[str]:
-    """Return a list of common default expense categories."""
-    return [
-        "clothing",
-        "coffee",
-        "dining",
-        "education",
-        "entertainment",
-        "gas",
-        "gifts",
-        "groceries",
-        "health",
-        "home",
-        "insurance",
-        "personal",
-        "subscriptions",
-        "transport",
-        "travel",
-        "utilities",
-    ]

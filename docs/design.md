@@ -278,13 +278,15 @@ finbot/
 │       │
 │       ├── bot/                # Telegram layer (thin)
 │       │   ├── __init__.py
-│       │   ├── handlers.py     # Message handlers
+│       │   ├── handlers.py     # Message & callback handlers
 │       │   ├── keyboards.py    # Inline keyboards (confirm/cancel/edit)
-│       │   └── formatters.py   # Format structured data for Telegram
+│       │   ├── formatters.py   # Format structured data for Telegram
+│       │   └── middleware.py   # Access control & DB session injection
 │       │
 │       ├── agent/              # LLM orchestration
 │       │   ├── __init__.py
 │       │   ├── orchestrator.py # Multi-step state machine
+│       │   ├── state.py        # Conversation state models & in-memory store
 │       │   ├── prompts.py      # System prompts and templates
 │       │   └── llm_client.py   # Abstract LLM interface (Ollama / paid API)
 │       │
@@ -303,9 +305,8 @@ finbot/
 │       │   ├── balance.py      # Balance derivation from ledger replay
 │       │   └── validation.py   # Settlement validation rules
 │       │
-│       ├── reprocessing/       # Re-parse historical raw inputs
-│       │   ├── __init__.py
-│       │   └── engine.py
+│       ├── reprocessing/       # Re-parse historical raw inputs (Phase 6)
+│       │   └── __init__.py
 │       │
 │       └── db/
 │           ├── __init__.py
@@ -315,6 +316,7 @@ finbot/
 │
 └── tests/
     ├── test_agent/
+    ├── test_bot/
     ├── test_ledger/
     ├── test_tools/
     └── fixtures/

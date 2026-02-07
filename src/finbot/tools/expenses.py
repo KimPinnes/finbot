@@ -41,8 +41,7 @@ class ParsedExpense(BaseModel):
     payer: str | None = Field(
         default=None,
         description=(
-            "Who paid: 'user' (the message sender) or 'partner'. "
-            "None if not specified in the text."
+            "Who paid: 'user' (the message sender) or 'partner'. None if not specified in the text."
         ),
     )
     split_payer_pct: float | None = Field(
@@ -55,10 +54,7 @@ class ParsedExpense(BaseModel):
     )
     event_date: str | None = Field(
         default=None,
-        description=(
-            "Date of the expense in YYYY-MM-DD format. "
-            "None means today (default)."
-        ),
+        description=("Date of the expense in YYYY-MM-DD format. None means today (default)."),
     )
 
 
@@ -72,8 +68,7 @@ class ParseExpenseResult(BaseModel):
     intent: str = Field(
         default="expense",
         description=(
-            "Detected intent: 'expense', 'settlement', 'query', "
-            "'greeting', or 'unknown'."
+            "Detected intent: 'expense', 'settlement', 'query', 'greeting', or 'unknown'."
         ),
     )
     raw_text: str = Field(
@@ -134,9 +129,7 @@ PARSE_EXPENSE_SCHEMA: dict = {
         "intent": {
             "type": "string",
             "enum": ["expense", "settlement", "query", "greeting", "unknown"],
-            "description": (
-                "Detected intent of the user's message."
-            ),
+            "description": ("Detected intent of the user's message."),
         },
         "raw_text": {
             "type": "string",

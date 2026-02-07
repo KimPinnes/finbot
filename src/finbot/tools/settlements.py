@@ -16,8 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from finbot.ledger.balance import get_balance as _derive_balance
 from finbot.ledger.repository import (
-    get_partnership,
     get_partner_id,
+    get_partnership,
     save_ledger_entry,
 )
 from finbot.ledger.validation import validate_settlement as _validate
@@ -81,7 +81,9 @@ async def log_settlement(
     """
     if session is None or user_id is None or raw_input_id is None:
         return {
-            "error": "Settlement logging requires a database session, user context, and raw input ID.",
+            "error": (
+                "Settlement logging requires a database session, user context, and raw input ID."
+            ),
         }
 
     partnership = await get_partnership(session, user_id)
@@ -140,8 +142,7 @@ async def log_settlement(
         "success": True,
         "entry_id": str(entry.id),
         "description": (
-            f"{payer_label} paid {partnership.default_currency} {dec_amount} "
-            f"as a settlement."
+            f"{payer_label} paid {partnership.default_currency} {dec_amount} as a settlement."
         ),
         "warnings": warnings,
     }

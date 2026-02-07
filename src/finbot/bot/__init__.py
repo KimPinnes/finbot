@@ -15,7 +15,8 @@ from aiogram.enums import ParseMode
 from finbot.bot.handlers import router as main_router
 from finbot.bot.middleware import AccessControlMiddleware, DbSessionMiddleware
 from finbot.config import settings
-from finbot.db.session import engine
+from finbot.db.session import engine, get_session
+from finbot.ledger.repository import save_category
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,21 @@ def create_bot() -> Bot:
     )
 
 
+async def _seed_default_categories() -> None:
+    """Insert default categories from settings into the DB.
+
+    Uses :func:`save_category` which skips existing rows, so this is safe
+    to call on every startup.
+    """
+    async with get_session() as session:
+        for name in settings.default_categories:
+            await save_category(session, name)
+    logger.info(
+        "Seeded %d default categories",
+        len(settings.default_categories),
+    )
+
+
 async def run_bot() -> None:
     """Start the Telegram bot with long-polling.
 
@@ -70,6 +86,8 @@ async def run_bot() -> None:
     @dp.startup.register
     async def on_startup() -> None:
         logger.info("FinBot started — polling for updates")
+        # Seed default categories into the DB (idempotent).
+        await _seed_default_categories()
 
     @dp.shutdown.register
     async def on_shutdown() -> None:

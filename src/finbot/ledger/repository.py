@@ -16,7 +16,7 @@ from decimal import Decimal
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from finbot.ledger.models import Category, LedgerEntry, LLMCall, Partnership, RawInput
+from finbot.ledger.models import Category, FailureLog, LedgerEntry, LLMCall, Partnership, RawInput
 
 
 async def save_raw_input(
@@ -94,6 +94,46 @@ async def save_llm_call(
     session.add(llm_call)
     await session.flush()
     return llm_call
+
+
+# ── Failure logging ──────────────────────────────────────────────────────────
+
+
+async def save_failure(
+    session: AsyncSession,
+    *,
+    telegram_user_id: int,
+    user_input: str,
+    error_reply: str,
+    traceback_str: str,
+    failure_source: str,
+) -> FailureLog:
+    """Persist a failure record for later debugging.
+
+    Called from orchestrator ``except`` blocks so that every user-visible
+    error is captured with full context (input, reply, traceback, source).
+
+    Args:
+        session: Active async database session (caller manages commit).
+        telegram_user_id: Telegram user ID that triggered the failure.
+        user_input: The raw message text that caused the failure.
+        error_reply: The error message sent back to the user.
+        traceback_str: Full Python traceback as a string.
+        failure_source: Short label for the failure site (e.g. ``"llm_parse"``).
+
+    Returns:
+        The newly created :class:`FailureLog` instance.
+    """
+    row = FailureLog(
+        telegram_user_id=telegram_user_id,
+        user_input=user_input,
+        error_reply=error_reply,
+        traceback=traceback_str,
+        failure_source=failure_source,
+    )
+    session.add(row)
+    await session.flush()
+    return row
 
 
 # ── Ledger entry persistence (Phase 4) ───────────────────────────────────────
@@ -218,15 +258,12 @@ async def get_filtered_entries(
         A list of matching :class:`LedgerEntry` instances ordered by
         ``event_date`` descending.
     """
-    stmt = (
-        select(LedgerEntry)
-        .where(
-            LedgerEntry.superseded_by.is_(None),
-            or_(
-                LedgerEntry.payer_telegram_id == user_a_id,
-                LedgerEntry.payer_telegram_id == user_b_id,
-            ),
-        )
+    stmt = select(LedgerEntry).where(
+        LedgerEntry.superseded_by.is_(None),
+        or_(
+            LedgerEntry.payer_telegram_id == user_a_id,
+            LedgerEntry.payer_telegram_id == user_b_id,
+        ),
     )
 
     if category is not None:
@@ -291,19 +328,16 @@ async def get_category_totals(
 
     Returns list of tuples: (category, total, count).
     """
-    stmt = (
-        select(
-            LedgerEntry.category,
-            func.sum(LedgerEntry.amount),
-            func.count(LedgerEntry.id),
-        )
-        .where(
-            LedgerEntry.superseded_by.is_(None),
-            or_(
-                LedgerEntry.payer_telegram_id == user_a_id,
-                LedgerEntry.payer_telegram_id == user_b_id,
-            ),
-        )
+    stmt = select(
+        LedgerEntry.category,
+        func.sum(LedgerEntry.amount),
+        func.count(LedgerEntry.id),
+    ).where(
+        LedgerEntry.superseded_by.is_(None),
+        or_(
+            LedgerEntry.payer_telegram_id == user_a_id,
+            LedgerEntry.payer_telegram_id == user_b_id,
+        ),
     )
 
     if category is not None:
@@ -315,9 +349,7 @@ async def get_category_totals(
     if event_type is not None:
         stmt = stmt.where(LedgerEntry.event_type == event_type)
 
-    stmt = stmt.group_by(LedgerEntry.category).order_by(
-        func.sum(LedgerEntry.amount).desc()
-    )
+    stmt = stmt.group_by(LedgerEntry.category).order_by(func.sum(LedgerEntry.amount).desc())
 
     result = await session.execute(stmt)
     rows = list(result.all())
@@ -406,6 +438,67 @@ async def save_category(
     session.add(category)
     await session.flush()
     return category, True
+
+
+async def rename_category(
+    session: AsyncSession,
+    old_name: str,
+    new_name: str,
+) -> tuple[bool, int]:
+    """Rename a category and update all historical ledger entries.
+
+    Since ``Category.name`` is the primary key, this deletes the old row
+    and inserts a new one, then updates every ``ledger`` row that
+    referenced the old name.
+
+    Args:
+        session: Active async database session (caller manages commit).
+        old_name: Current category name (case-insensitive).
+        new_name: Desired new category name (will be lowercased).
+
+    Returns:
+        A tuple of ``(success, ledger_count)`` where *success* is ``True``
+        if the rename was performed, and *ledger_count* is the number of
+        ledger entries that were updated.
+    """
+    from sqlalchemy import update
+
+    old_normalised = old_name.strip().lower()
+    new_normalised = new_name.strip().lower()
+
+    if old_normalised == new_normalised:
+        return False, 0
+
+    # Verify old category exists.
+    stmt = select(Category).where(Category.name == old_normalised)
+    result = await session.execute(stmt)
+    existing = result.scalar_one_or_none()
+    if existing is None:
+        return False, 0
+
+    # Check the new name isn't already taken.
+    stmt_new = select(Category).where(Category.name == new_normalised)
+    result_new = await session.execute(stmt_new)
+    if result_new.scalar_one_or_none() is not None:
+        return False, 0
+
+    # Delete old category row and insert new one.
+    await session.delete(existing)
+    await session.flush()
+    new_category = Category(name=new_normalised)
+    session.add(new_category)
+    await session.flush()
+
+    # Update all ledger entries that used the old category name.
+    upd = (
+        update(LedgerEntry)
+        .where(LedgerEntry.category == old_normalised)
+        .values(category=new_normalised)
+    )
+    ledger_result = await session.execute(upd)
+    ledger_count = ledger_result.rowcount  # type: ignore[union-attr]
+
+    return True, ledger_count
 
 
 # ── Partnership management ───────────────────────────────────────────────────

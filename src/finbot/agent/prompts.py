@@ -79,7 +79,15 @@ Important:
 - Only extract what is EXPLICITLY stated. Do not infer or assume missing fields.
 - If the message is ambiguous, classify as many fields as you can and leave the \
 rest null.
-- A single message can contain multiple expenses (e.g. "groceries 300 and gas 200").
+- A single message can contain MULTIPLE expenses — separated by newlines, commas, \
+"and", or listed as distinct items. You MUST return ALL of them in the expenses \
+array. Do NOT ignore or skip any expense. Each distinct item or line with an \
+amount is a separate expense.
+- Example multi-expense input:
+  "Water 3 days ago 180
+   Dinner 400 yesterday"
+  → TWO expenses in the array: the first with amount=180 description="Water" \
+and the second with amount=400 description="Dinner".
 - When in doubt between "expense" and "unknown", prefer "expense" if the user \
 mentioned an amount and what it was for (category or item).
 - The current date is {current_date} (YYYY-MM-DD). Use it to resolve relative dates \

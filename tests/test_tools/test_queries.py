@@ -11,7 +11,6 @@ import pytest
 
 from finbot.tools.queries import get_balance, get_recent_entries, query_expenses
 
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 USER_ID = 100

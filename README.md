@@ -2,6 +2,17 @@
 
 Natural-language shared finance agent via Telegram. Two partners send free-text messages (expenses, settlements, queries); an LLM agent parses them, confirms, and commits to an append-only ledger.
 
+## Features
+
+- **Natural language input** — send messages like *"groceries 300, I paid, split 50/50"*
+- **Multi-step confirmation** — the bot clarifies ambiguities before committing
+- **Append-only ledger** — immutable audit trail with derived balances
+- **Local LLM primary** — runs on Ollama (Qwen2.5-7B) with paid API fallback
+- **Settlements** — record direct payments between partners
+- **Expense queries** — ask about balances, spending by category, recent activity
+- **Category management** — view and rename categories via `/categories`
+- **Observability** — every LLM call logged with latency, tokens, and cost
+
 ## Prerequisites
 
 - **Python 3.11+**
@@ -9,7 +20,7 @@ Natural-language shared finance agent via Telegram. Two partners send free-text 
 - **Telegram Bot Token** from [@BotFather](https://t.me/BotFather)
 - **Ollama** (optional, for local LLM) or a paid API key (Anthropic/OpenAI) for the agent
 
-## Initialization
+## Quick Start
 
 ### 1. Clone and enter the repo
 
@@ -46,10 +57,10 @@ See `.env.example` for all options (currency, default split behavior, debug, etc
 **Option A — Docker (recommended for dev)**
 
 ```bash
-docker compose up -d
+docker compose up -d db
 ```
 
-This starts PostgreSQL; the app can run on the host (see Startup below) with `DATABASE_URL=postgresql+asyncpg://finbot:finbot@localhost:5432/finbot`.
+This starts PostgreSQL on port 5432 with `DATABASE_URL=postgresql+asyncpg://finbot:finbot@localhost:5432/finbot`.
 
 **Option B — Existing PostgreSQL**
 
@@ -61,42 +72,70 @@ Create a database and user, then set `DATABASE_URL` in `.env`.
 alembic upgrade head
 ```
 
-## Startup
+### 5. Start the bot
 
-### With Docker Compose (app + DB)
+```bash
+python -m finbot
+```
+
+## Docker Deployment
+
+### Development (app + DB)
 
 ```bash
 docker compose up -d
 ```
 
-The `finbot` service runs the bot (see `docker-compose.yml`). It uses `entrypoint.sh`: migrations then `python -m finbot`.
+The `finbot` service runs the bot (see `docker-compose.yml`). It uses `entrypoint.sh` to run migrations then start the bot. Source is volume-mounted for hot-reload.
 
-### Local (app only, DB in Docker or external)
+### Production (app + DB + Ollama with GPU)
 
 ```bash
-# If using Docker for DB only:
-docker compose up -d db
-
-# Then run the bot on your machine:
-source .venv/bin/activate
-alembic upgrade head
-python -m finbot
+docker compose -f docker-compose.prod.yml up -d
 ```
 
-### Production
+Uses `docker-compose.prod.yml` with Ollama GPU passthrough (requires NVIDIA Container Toolkit on the host).
 
-Use `docker-compose.prod.yml` for production-style deployment (see that file for overrides).
+## Usage
 
-## Operation
-
-1. **Start the bot** (Docker or `python -m finbot` as above).
-2. **Open Telegram** and find your bot; only users whose IDs are in `ALLOWED_TELEGRAM_USER_IDS` can use it.
-3. **Send natural-language messages**, e.g.:
+1. **Open Telegram** and find your bot; only users whose IDs are in `ALLOWED_TELEGRAM_USER_IDS` can use it.
+2. **Send natural-language messages**, e.g.:
    - *"Coffee 25 shekels"* — log an expense
    - *"I paid 100 for groceries, split half"* — expense with split
    - *"She paid me back 50"* — settlement
    - *"What did we spend on food this month?"* — query
-4. The agent will parse, ask for confirmation when needed, then commit to the ledger. Use inline keyboards to confirm or cancel.
+
+The agent will parse, ask for confirmation when needed, then commit to the ledger. Use inline keyboards to confirm or cancel.
+
+### Bot Commands
+
+| Command | Description |
+|---------|-------------|
+| `/start` | Welcome message and brief instructions |
+| `/help` | Detailed usage guide |
+| `/balance` | Show the current balance between partners |
+| `/setup <partner_id>` | Create a partnership (one-time setup) |
+| `/categories` | View and rename expense categories |
+
+## Project Structure
+
+```
+finbot/
+├── src/finbot/           # Application source
+│   ├── agent/            # LLM orchestration (state machine, prompts, client)
+│   ├── bot/              # Telegram handlers, keyboards, formatters, middleware
+│   ├── db/               # Async DB session & Alembic migrations
+│   ├── ledger/           # ORM models, repository, balance derivation, validation
+│   ├── reprocessing/     # Historical re-parsing (future)
+│   └── tools/            # Tool registry & implementations (expenses, queries, etc.)
+├── tests/                # Mirrors src/ structure
+├── docs/                 # Technical design & ADRs
+├── docker-compose.yml    # Dev compose (macOS)
+├── docker-compose.prod.yml  # Prod compose (Ubuntu + GPU)
+└── pyproject.toml        # Dependencies & tool config
+```
+
+See `docs/design.md` for the full technical design and `docs/decisions.md` for architecture decision records.
 
 ## Development
 
@@ -104,4 +143,6 @@ Use `docker-compose.prod.yml` for production-style deployment (see that file for
 - **Lint:** `ruff check src tests`
 - **Format:** `ruff format src tests`
 
-Design and decisions are in `docs/design.md` and `docs/decisions.md`.
+## License
+
+MIT

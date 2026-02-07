@@ -9,15 +9,13 @@ from __future__ import annotations
 
 import uuid
 from datetime import date
-from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from finbot.agent.llm_client import LLMResponse, ToolCall
 from finbot.agent.orchestrator import (
     Orchestrator,
-    OrchestratorResult,
     _build_clarification_question,
     _merge_field_manually,
     _parse_split,
@@ -30,7 +28,6 @@ from finbot.agent.state import (
     PendingExpense,
 )
 from finbot.bot.keyboards import CB_CANCEL, CB_CONFIRM, CB_EDIT
-
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -111,17 +108,17 @@ def _make_orchestrator(
 @pytest.mark.asyncio
 async def test_happy_path_complete_expense() -> None:
     """A message with all fields should go straight to CONFIRMING."""
-    response = _make_llm_response(
-        tool_calls=[_expense_tool_call([_complete_expense_dict()])]
-    )
+    response = _make_llm_response(tool_calls=[_expense_tool_call([_complete_expense_dict()])])
     store = ConversationStore()
     orch, _ = _make_orchestrator(response, store)
     session = AsyncMock()
     raw_id = uuid.uuid4()
 
     result = await orch.handle_message(
-        user_id=42, text="groceries 300 I paid split 50/50",
-        session=session, raw_input_id=raw_id,
+        user_id=42,
+        text="groceries 300 I paid split 50/50",
+        session=session,
+        raw_input_id=raw_id,
     )
 
     # Should be in CONFIRMING state with a keyboard.
@@ -140,8 +137,11 @@ async def test_happy_path_confirm_commits() -> None:
         raw_input_id=uuid.uuid4(),
         pending_expenses=[
             PendingExpense(
-                amount=300, category="groceries", payer="user",
-                split_payer_pct=50, split_other_pct=50,
+                amount=300,
+                category="groceries",
+                payer="user",
+                split_payer_pct=50,
+                split_other_pct=50,
                 event_date="2025-12-05",
             ),
         ],
@@ -153,7 +153,8 @@ async def test_happy_path_confirm_commits() -> None:
     session.flush = AsyncMock()
 
     result = await orch.handle_callback(
-        user_id=42, callback_data=f"{CB_CONFIRM}:abc",
+        user_id=42,
+        callback_data=f"{CB_CONFIRM}:abc",
         session=session,
     )
 
@@ -171,16 +172,16 @@ async def test_happy_path_confirm_commits() -> None:
 @pytest.mark.asyncio
 async def test_missing_payer_triggers_clarification() -> None:
     """If payer is missing, orchestrator should ask for it."""
-    response = _make_llm_response(
-        tool_calls=[_expense_tool_call([_incomplete_expense_dict()])]
-    )
+    response = _make_llm_response(tool_calls=[_expense_tool_call([_incomplete_expense_dict()])])
     store = ConversationStore()
     orch, _ = _make_orchestrator(response, store)
     session = AsyncMock()
 
     result = await orch.handle_message(
-        user_id=42, text="groceries 300",
-        session=session, raw_input_id=uuid.uuid4(),
+        user_id=42,
+        text="groceries 300",
+        session=session,
+        raw_input_id=uuid.uuid4(),
     )
 
     ctx = store.get(42)
@@ -207,17 +208,23 @@ async def test_clarification_answer_merges_and_revalidates() -> None:
 
     # LLM response with payer filled in but still missing split.
     merge_response = _make_llm_response(
-        tool_calls=[_expense_tool_call([
-            {"amount": 300, "category": "groceries", "payer": "user"},
-        ])]
+        tool_calls=[
+            _expense_tool_call(
+                [
+                    {"amount": 300, "category": "groceries", "payer": "user"},
+                ]
+            )
+        ]
     )
     orch, mock_llm = _make_orchestrator(merge_response, store)
     mock_llm.chat = AsyncMock(return_value=merge_response)
     session = AsyncMock()
 
     result = await orch.handle_message(
-        user_id=42, text="me",
-        session=session, raw_input_id=uuid.uuid4(),
+        user_id=42,
+        text="me",
+        session=session,
+        raw_input_id=uuid.uuid4(),
     )
 
     ctx = store.get(42)
@@ -236,24 +243,26 @@ async def test_full_clarification_flow_to_confirm() -> None:
         clarification_field="payer",
         pending_expenses=[
             PendingExpense(
-                amount=300, category="groceries",
-                split_payer_pct=50, split_other_pct=50,
+                amount=300,
+                category="groceries",
+                split_payer_pct=50,
+                split_other_pct=50,
             ),
         ],
     )
     store.set(42, ctx)
 
     # LLM returns complete data.
-    merge_response = _make_llm_response(
-        tool_calls=[_expense_tool_call([_complete_expense_dict()])]
-    )
+    merge_response = _make_llm_response(tool_calls=[_expense_tool_call([_complete_expense_dict()])])
     orch, mock_llm = _make_orchestrator(merge_response, store)
     mock_llm.chat = AsyncMock(return_value=merge_response)
     session = AsyncMock()
 
     result = await orch.handle_message(
-        user_id=42, text="me",
-        session=session, raw_input_id=uuid.uuid4(),
+        user_id=42,
+        text="me",
+        session=session,
+        raw_input_id=uuid.uuid4(),
     )
 
     ctx = store.get(42)
@@ -268,21 +277,28 @@ async def test_full_clarification_flow_to_confirm() -> None:
 async def test_cancel_clears_state() -> None:
     """Tapping Cancel should discard pending expenses."""
     store = ConversationStore()
-    store.set(42, ConversationContext(
-        state=ConversationState.CONFIRMING,
-        raw_input_id=uuid.uuid4(),
-        pending_expenses=[
-            PendingExpense(
-                amount=300, category="groceries", payer="user",
-                split_payer_pct=50, split_other_pct=50,
-            ),
-        ],
-    ))
+    store.set(
+        42,
+        ConversationContext(
+            state=ConversationState.CONFIRMING,
+            raw_input_id=uuid.uuid4(),
+            pending_expenses=[
+                PendingExpense(
+                    amount=300,
+                    category="groceries",
+                    payer="user",
+                    split_payer_pct=50,
+                    split_other_pct=50,
+                ),
+            ],
+        ),
+    )
     orch, _ = _make_orchestrator(store=store)
     session = AsyncMock()
 
     result = await orch.handle_callback(
-        user_id=42, callback_data=f"{CB_CANCEL}:",
+        user_id=42,
+        callback_data=f"{CB_CANCEL}:",
         session=session,
     )
 
@@ -297,21 +313,28 @@ async def test_cancel_clears_state() -> None:
 async def test_edit_enters_clarifying() -> None:
     """Tapping Edit should move to CLARIFYING state."""
     store = ConversationStore()
-    store.set(42, ConversationContext(
-        state=ConversationState.CONFIRMING,
-        raw_input_id=uuid.uuid4(),
-        pending_expenses=[
-            PendingExpense(
-                amount=300, category="groceries", payer="user",
-                split_payer_pct=50, split_other_pct=50,
-            ),
-        ],
-    ))
+    store.set(
+        42,
+        ConversationContext(
+            state=ConversationState.CONFIRMING,
+            raw_input_id=uuid.uuid4(),
+            pending_expenses=[
+                PendingExpense(
+                    amount=300,
+                    category="groceries",
+                    payer="user",
+                    split_payer_pct=50,
+                    split_other_pct=50,
+                ),
+            ],
+        ),
+    )
     orch, _ = _make_orchestrator(store=store)
     session = AsyncMock()
 
     result = await orch.handle_callback(
-        user_id=42, callback_data=f"{CB_EDIT}:",
+        user_id=42,
+        callback_data=f"{CB_EDIT}:",
         session=session,
     )
 
@@ -335,8 +358,10 @@ async def test_greeting_intent() -> None:
     session = AsyncMock()
 
     result = await orch.handle_message(
-        user_id=42, text="hello",
-        session=session, raw_input_id=uuid.uuid4(),
+        user_id=42,
+        text="hello",
+        session=session,
+        raw_input_id=uuid.uuid4(),
     )
 
     assert not store.has(42)
@@ -354,8 +379,10 @@ async def test_query_intent() -> None:
     session = AsyncMock()
 
     result = await orch.handle_message(
-        user_id=42, text="how much did we spend?",
-        session=session, raw_input_id=uuid.uuid4(),
+        user_id=42,
+        text="how much did we spend?",
+        session=session,
+        raw_input_id=uuid.uuid4(),
     )
 
     assert not store.has(42)
@@ -378,8 +405,10 @@ async def test_llm_failure_returns_error() -> None:
     session = AsyncMock()
 
     result = await orch.handle_message(
-        user_id=42, text="groceries 300",
-        session=session, raw_input_id=uuid.uuid4(),
+        user_id=42,
+        text="groceries 300",
+        session=session,
+        raw_input_id=uuid.uuid4(),
     )
 
     assert "trouble" in result.reply_text.lower()
@@ -393,18 +422,24 @@ async def test_llm_failure_returns_error() -> None:
 async def test_multiple_expenses_all_complete() -> None:
     """Multiple complete expenses should all reach CONFIRMING."""
     response = _make_llm_response(
-        tool_calls=[_expense_tool_call([
-            _complete_expense_dict(category="groceries", amount=300),
-            _complete_expense_dict(category="gas", amount=200),
-        ])]
+        tool_calls=[
+            _expense_tool_call(
+                [
+                    _complete_expense_dict(category="groceries", amount=300),
+                    _complete_expense_dict(category="gas", amount=200),
+                ]
+            )
+        ]
     )
     store = ConversationStore()
     orch, _ = _make_orchestrator(response, store)
     session = AsyncMock()
 
     result = await orch.handle_message(
-        user_id=42, text="groceries 300 and gas 200, I paid, split 50/50",
-        session=session, raw_input_id=uuid.uuid4(),
+        user_id=42,
+        text="groceries 300 and gas 200, I paid, split 50/50",
+        session=session,
+        raw_input_id=uuid.uuid4(),
     )
 
     ctx = store.get(42)
@@ -417,27 +452,37 @@ async def test_multiple_expenses_all_complete() -> None:
 async def test_multiple_expenses_commit_all() -> None:
     """Confirming multiple expenses should write all to ledger."""
     store = ConversationStore()
-    store.set(42, ConversationContext(
-        state=ConversationState.CONFIRMING,
-        raw_input_id=uuid.uuid4(),
-        pending_expenses=[
-            PendingExpense(
-                amount=300, category="groceries", payer="user",
-                split_payer_pct=50, split_other_pct=50,
-            ),
-            PendingExpense(
-                amount=200, category="gas", payer="user",
-                split_payer_pct=50, split_other_pct=50,
-            ),
-        ],
-    ))
+    store.set(
+        42,
+        ConversationContext(
+            state=ConversationState.CONFIRMING,
+            raw_input_id=uuid.uuid4(),
+            pending_expenses=[
+                PendingExpense(
+                    amount=300,
+                    category="groceries",
+                    payer="user",
+                    split_payer_pct=50,
+                    split_other_pct=50,
+                ),
+                PendingExpense(
+                    amount=200,
+                    category="gas",
+                    payer="user",
+                    split_payer_pct=50,
+                    split_other_pct=50,
+                ),
+            ],
+        ),
+    )
     orch, _ = _make_orchestrator(store=store)
     session = AsyncMock()
     session.add = MagicMock()
     session.flush = AsyncMock()
 
     result = await orch.handle_callback(
-        user_id=42, callback_data=f"{CB_CONFIRM}:",
+        user_id=42,
+        callback_data=f"{CB_CONFIRM}:",
         session=session,
     )
 
@@ -456,7 +501,8 @@ async def test_callback_with_no_state() -> None:
     session = AsyncMock()
 
     result = await orch.handle_callback(
-        user_id=42, callback_data=f"{CB_CONFIRM}:",
+        user_id=42,
+        callback_data=f"{CB_CONFIRM}:",
         session=session,
     )
 
@@ -503,28 +549,32 @@ class TestResolveDate:
 class TestBuildClarificationQuestion:
     def test_payer_question(self) -> None:
         q = _build_clarification_question(
-            "payer", 0,
+            "payer",
+            0,
             [PendingExpense(amount=300, category="groceries")],
         )
         assert "paid" in q.lower() or "who" in q.lower()
 
     def test_split_question(self) -> None:
         q = _build_clarification_question(
-            "split_payer_pct", 0,
+            "split_payer_pct",
+            0,
             [PendingExpense(amount=300, category="groceries")],
         )
         assert "split" in q.lower()
 
     def test_category_question(self) -> None:
         q = _build_clarification_question(
-            "category", 0,
+            "category",
+            0,
             [PendingExpense(amount=300)],
         )
         assert "category" in q.lower()
 
     def test_multi_expense_prefix(self) -> None:
         q = _build_clarification_question(
-            "payer", 1,
+            "payer",
+            1,
             [PendingExpense(amount=100), PendingExpense(amount=200)],
         )
         assert "#2" in q

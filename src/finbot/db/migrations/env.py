@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from finbot.config import settings
 
 # Import all models so that Base.metadata is fully populated.
-from finbot.ledger.models import Base  # noqa: F401
+from finbot.ledger.models import Base
 
 # Alembic Config object (provides access to alembic.ini values).
 config = context.config
@@ -39,7 +39,7 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
-def do_run_migrations(connection) -> None:  # noqa: ANN001
+def do_run_migrations(connection) -> None:
     """Run migrations inside a connection context."""
     context.configure(
         connection=connection,

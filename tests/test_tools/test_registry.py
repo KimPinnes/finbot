@@ -120,12 +120,8 @@ def test_list_tools_returns_all() -> None:
     async def handler() -> None:
         pass
 
-    registry.register(
-        name="a", description="A", parameters_schema={}, handler=handler
-    )
-    registry.register(
-        name="b", description="B", parameters_schema={}, handler=handler
-    )
+    registry.register(name="a", description="A", parameters_schema={}, handler=handler)
+    registry.register(name="b", description="B", parameters_schema={}, handler=handler)
 
     tools = registry.list_tools()
     assert len(tools) == 2
