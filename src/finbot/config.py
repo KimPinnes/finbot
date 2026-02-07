@@ -1,7 +1,12 @@
 """Application settings loaded from environment variables / .env file."""
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _strip_str(v: str | object) -> str | object:
+    """Strip whitespace from string env values (common .env copy-paste issue)."""
+    return v.strip() if isinstance(v, str) else v
 
 
 class Settings(BaseSettings):
@@ -61,10 +66,19 @@ class Settings(BaseSettings):
         description="OpenAI API key (required if fallback_llm_provider='openai').",
     )
 
+    @field_validator("anthropic_api_key", "openai_api_key", mode="before")
+    @classmethod
+    def strip_api_keys(cls, v: str | object) -> str | object:
+        return _strip_str(v)
+
     # ── General ───────────────────────────────────────────────────────
     default_currency: str = Field(
         default="ILS",
         description="Default currency code for expenses.",
+    )
+    assume_half_split: bool = Field(
+        default=False,
+        description="Assume a 50/50 split when the user doesn't specify one.",
     )
     debug: bool = Field(
         default=False,

@@ -26,10 +26,12 @@ RUN apt-get update && \
 # Copy installed packages from builder
 COPY --from=builder /install /usr/local
 
-# Copy application source and alembic config
+# Copy application source, alembic config, and entrypoint
 COPY alembic.ini ./
 COPY src/ ./src/
+COPY entrypoint.sh ./
+RUN chmod +x entrypoint.sh
 
 ENV PYTHONUNBUFFERED=1
 
-CMD ["python", "-m", "finbot"]
+ENTRYPOINT ["./entrypoint.sh"]
