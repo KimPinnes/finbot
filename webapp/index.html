@@ -329,10 +329,29 @@
     return CATS[name.toLowerCase()] || DEFAULT_CAT;
   }
 
-  // ── Read params from URL ────────────────────────────
+  // ── Read params from URL, fallback to last-used (e.g. after reload) ─
+  var STORAGE_KEY = 'finbot_add_params';
   var params = new URLSearchParams(window.location.search);
-  var categories = (params.get('cats') || '').split(',').filter(Boolean);
-  var currency = params.get('currency') || 'ILS';
+  var catsFromUrl = (params.get('cats') || '').split(',').filter(Boolean);
+  var currencyFromUrl = params.get('currency') || null;
+
+  var categories, currency;
+  if (catsFromUrl.length > 0) {
+    categories = catsFromUrl;
+    currency = currencyFromUrl || 'ILS';
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ cats: categories, currency: currency }));
+    } catch (e) { /* ignore */ }
+  } else {
+    try {
+      var stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+      categories = Array.isArray(stored.cats) ? stored.cats : [];
+      currency = stored.currency || 'ILS';
+    } catch (e) {
+      categories = [];
+      currency = 'ILS';
+    }
+  }
 
   // ── State ──────────────────────────────────────────
   var selectedCat = null;
