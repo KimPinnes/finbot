@@ -220,6 +220,27 @@
     margin-top: 24px;
     padding: 0 16px;
   }
+
+  .submit-btn {
+    width: 100%;
+    margin-top: 24px;
+    padding: 14px 20px;
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--tg-theme-button-text-color, #fff);
+    background: var(--tg-theme-button-color, #3390ec);
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .submit-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .submit-btn:not(:disabled):active {
+    opacity: 0.9;
+  }
 </style>
 </head>
 <body>
@@ -286,6 +307,8 @@
   </div>
 
   <p class="hint" id="hint">Enter an amount to continue.</p>
+
+  <button type="button" class="submit-btn" id="submitBtn" disabled>Submit</button>
 </div>
 
 <script>
@@ -455,12 +478,15 @@
     validate();
   });
 
-  // ── Amount input ───────────────────────────────────
+  // ── Amount input (validate on input, change, keyup for WebView compatibility) ──
   var amountInput = document.getElementById('amount');
   amountInput.addEventListener('input', validate);
+  amountInput.addEventListener('change', validate);
+  amountInput.addEventListener('keyup', validate);
 
-  // ── Validation & MainButton ────────────────────────
+  // ── Validation, MainButton & in-page Submit ────────
   var hint = document.getElementById('hint');
+  var submitBtn = document.getElementById('submitBtn');
 
   function validate() {
     var amount = parseFloat(amountInput.value);
@@ -477,15 +503,22 @@
     if (valid) {
       tg.MainButton.setText('Submit \u2014 ' + currency + ' ' + amount.toFixed(2));
       tg.MainButton.show();
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Submit \u2014 ' + currency + ' ' + amount.toFixed(2);
       hint.textContent = '';
     } else {
       tg.MainButton.hide();
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Submit';
       hint.textContent = 'Enter a valid amount to continue.';
     }
   }
 
-  // ── Submit ─────────────────────────────────────────
-  tg.MainButton.onClick(function() {
+  // ── Submit (shared by MainButton and in-page button) ─
+  function doSubmit() {
+    var amount = parseFloat(amountInput.value);
+    if (!amount || amount <= 0) return;
+
     var splitPayerPct, splitOtherPct;
     if (splitMode === '50') {
       splitPayerPct = 50;
@@ -497,10 +530,12 @@
       splitPayerPct = parseInt(splitPayerInput.value, 10);
       splitOtherPct = parseInt(splitOtherInput.value, 10);
     }
+    if (isNaN(splitPayerPct)) splitPayerPct = 50;
+    if (isNaN(splitOtherPct)) splitOtherPct = 50;
 
     var data = {
       category: selectedCat,
-      amount: parseFloat(amountInput.value),
+      amount: amount,
       currency: currency,
       description: document.getElementById('description').value.trim() || null,
       payer: payer,
@@ -509,8 +544,13 @@
       event_date: dateInput.value || null
     };
 
+    submitBtn.disabled = true;
+    if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
     tg.sendData(JSON.stringify(data));
-  });
+  }
+
+  tg.MainButton.onClick(doSubmit);
+  submitBtn.addEventListener('click', doSubmit);
 
   tg.MainButton.setParams({
     color: tg.themeParams.button_color || '#3390ec',
