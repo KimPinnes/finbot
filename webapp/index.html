@@ -53,6 +53,23 @@
     letter-spacing: 0.5px;
   }
 
+  /* ── Empty-state message ──────────────────────── */
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 40px 20px;
+    min-height: 40vh;
+  }
+  .empty-state .empty-icon { font-size: 48px; margin-bottom: 14px; }
+  .empty-state p {
+    font-size: 15px;
+    color: var(--tg-theme-hint-color, #999);
+    line-height: 1.5;
+  }
+
   /* ── Category grid (landing screen) ───────────── */
   .cat-grid {
     display: grid;
@@ -66,34 +83,56 @@
     justify-content: center;
     background: var(--tg-theme-secondary-bg-color, #f0f0f0);
     border: 2px solid transparent;
-    border-radius: 14px;
-    padding: 18px 8px 14px;
+    border-radius: 16px;
+    padding: 16px 6px 14px;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
     -webkit-tap-highlight-color: transparent;
   }
-  .cat-card:active { transform: scale(0.96); }
-  .cat-card .icon { font-size: 32px; line-height: 1; margin-bottom: 8px; }
+  .cat-card:active { transform: scale(0.95); }
+  .cat-card .icon-wrap {
+    width: 52px;
+    height: 52px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 8px;
+  }
+  .cat-card .icon-wrap .icon { font-size: 26px; line-height: 1; }
   .cat-card .label {
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
     text-transform: capitalize;
     color: var(--tg-theme-text-color, #000);
     text-align: center;
-    line-height: 1.2;
+    line-height: 1.25;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   /* ── Form screen header ───────────────────────── */
   .form-header {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 12px;
     margin-bottom: 8px;
-    padding: 12px 14px;
+    padding: 14px 16px;
     background: var(--tg-theme-secondary-bg-color, #f0f0f0);
-    border-radius: 12px;
+    border-radius: 14px;
   }
-  .form-header .icon { font-size: 28px; line-height: 1; }
+  .form-header .icon-wrap {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .form-header .icon-wrap .icon { font-size: 22px; line-height: 1; }
   .form-header .name {
     font-size: 17px;
     font-weight: 600;
@@ -196,12 +235,18 @@
 <div class="screen" id="categoryScreen">
   <h2>Choose a category</h2>
   <div class="cat-grid" id="catGrid"></div>
+  <div class="empty-state" id="emptyState" style="display:none">
+    <div class="empty-icon">&#x1F4AD;</div>
+    <p>No categories loaded.<br>Go back to the bot and tap <b>/add</b> again.</p>
+  </div>
 </div>
 
 <!-- ── Screen 2: Expense form ──────────────────────────────── -->
 <div class="screen" id="formScreen">
   <div class="form-header" id="formHeader">
-    <span class="icon" id="formHeaderIcon"></span>
+    <div class="icon-wrap" id="formHeaderIconWrap">
+      <span class="icon" id="formHeaderIcon"></span>
+    </div>
     <span class="name" id="formHeaderName"></span>
   </div>
 
@@ -257,19 +302,31 @@
   document.getElementById('blockedScreen').style.display = 'none';
   tg.expand();
 
-  // ── Category icon map ──────────────────────────────
-  var ICONS = {
-    clothing: "\uD83D\uDC55", coffee: "\u2615", dining: "\uD83C\uDF7D\uFE0F",
-    education: "\uD83D\uDCDA", entertainment: "\uD83C\uDFAC", gas: "\u26FD",
-    gifts: "\uD83C\uDF81", groceries: "\uD83D\uDED2", health: "\uD83D\uDC8A",
-    home: "\uD83C\uDFE0", insurance: "\uD83D\uDEE1\uFE0F", personal: "\uD83D\uDC87",
-    subscriptions: "\uD83D\uDCF1", transport: "\uD83D\uDE8C", travel: "\u2708\uFE0F",
-    utilities: "\uD83D\uDCA1"
+  // ── Category icon + colour map ────────────────────
+  var CATS = {
+    clothing:       { icon: "\uD83D\uDC55",       bg: "#fce4ec" },
+    coffee:         { icon: "\u2615",              bg: "#efebe9" },
+    dining:         { icon: "\uD83C\uDF7D\uFE0F", bg: "#fff3e0" },
+    education:      { icon: "\uD83C\uDF93",       bg: "#e8eaf6" },
+    entertainment:  { icon: "\uD83C\uDFAC",       bg: "#f3e5f5" },
+    gas:            { icon: "\u26FD",              bg: "#fff9c4" },
+    gifts:          { icon: "\uD83C\uDF81",       bg: "#fce4ec" },
+    groceries:      { icon: "\uD83D\uDED2",       bg: "#e8f5e9" },
+    health:         { icon: "\uD83C\uDFE5",       bg: "#e3f2fd" },
+    home:           { icon: "\uD83C\uDFE0",       bg: "#e0f2f1" },
+    insurance:      { icon: "\uD83D\uDEE1\uFE0F", bg: "#e8eaf6" },
+    personal:       { icon: "\uD83D\uDC87",       bg: "#fce4ec" },
+    pharmacy:       { icon: "\uD83D\uDC8A",       bg: "#e1f5fe" },
+    rent:           { icon: "\uD83C\uDFE2",       bg: "#ede7f6" },
+    subscriptions:  { icon: "\uD83D\uDCF1",       bg: "#e0f7fa" },
+    transport:      { icon: "\uD83D\uDE8C",       bg: "#fff3e0" },
+    travel:         { icon: "\u2708\uFE0F",        bg: "#e3f2fd" },
+    utilities:      { icon: "\uD83D\uDCA1",       bg: "#fffde7" }
   };
-  var DEFAULT_ICON = "\uD83D\uDCB0";
+  var DEFAULT_CAT = { icon: "\uD83D\uDCB0", bg: "#f5f5f5" };
 
-  function iconFor(cat) {
-    return ICONS[cat.toLowerCase()] || DEFAULT_ICON;
+  function catInfo(name) {
+    return CATS[name.toLowerCase()] || DEFAULT_CAT;
   }
 
   // ── Read params from URL ────────────────────────────
@@ -297,7 +354,10 @@
     categoryScreen.classList.remove('active');
     formScreen.classList.add('active');
 
-    document.getElementById('formHeaderIcon').textContent = iconFor(selectedCat);
+    var info = catInfo(selectedCat);
+    var wrap = document.getElementById('formHeaderIconWrap');
+    wrap.style.background = info.bg;
+    document.getElementById('formHeaderIcon').textContent = info.icon;
     document.getElementById('formHeaderName').textContent = selectedCat;
 
     tg.BackButton.show();
@@ -310,28 +370,40 @@
 
   // ── Render category grid ───────────────────────────
   var catGrid = document.getElementById('catGrid');
-  categories.forEach(function(cat) {
-    var card = document.createElement('button');
-    card.className = 'cat-card';
+  var emptyState = document.getElementById('emptyState');
 
-    var iconSpan = document.createElement('span');
-    iconSpan.className = 'icon';
-    iconSpan.textContent = iconFor(cat);
-    card.appendChild(iconSpan);
+  if (categories.length === 0) {
+    emptyState.style.display = 'flex';
+  } else {
+    categories.forEach(function(cat) {
+      var info = catInfo(cat);
 
-    var labelSpan = document.createElement('span');
-    labelSpan.className = 'label';
-    labelSpan.textContent = cat;
-    card.appendChild(labelSpan);
+      var card = document.createElement('button');
+      card.className = 'cat-card';
 
-    card.addEventListener('click', function() {
-      selectedCat = cat;
-      showFormScreen();
+      var iconWrap = document.createElement('div');
+      iconWrap.className = 'icon-wrap';
+      iconWrap.style.background = info.bg;
+
+      var iconSpan = document.createElement('span');
+      iconSpan.className = 'icon';
+      iconSpan.textContent = info.icon;
+      iconWrap.appendChild(iconSpan);
+      card.appendChild(iconWrap);
+
+      var labelSpan = document.createElement('span');
+      labelSpan.className = 'label';
+      labelSpan.textContent = cat;
+      card.appendChild(labelSpan);
+
+      card.addEventListener('click', function() {
+        selectedCat = cat;
+        showFormScreen();
+      });
+      catGrid.appendChild(card);
     });
-    catGrid.appendChild(card);
-  });
+  }
 
-  // Start on the category screen
   showCategoryScreen();
 
   // ── Date default = today ───────────────────────────
