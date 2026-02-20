@@ -1,10 +1,17 @@
-"""Inline keyboard builders for Telegram bot interactions.
+"""Keyboard builders for Telegram bot interactions.
 
 Provides reusable keyboard layouts for the confirmation flow
-(confirm / edit / cancel) used when committing expenses and settlements.
+(confirm / edit / cancel) used when committing expenses and settlements,
+and the reply-keyboard Mini App launcher for expense entry.
 """
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+from aiogram.types import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+    WebAppInfo,
+)
 
 # ── Callback data prefixes ────────────────────────────────────────────────────
 # Each callback encodes an action and an entry identifier so the handler
@@ -46,24 +53,30 @@ def categories_keyboard(categories: list[str]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def webapp_keyboard(webapp_url: str) -> InlineKeyboardMarkup:
-    """Build an inline keyboard with a Mini App button for expense entry.
+def webapp_keyboard(webapp_url: str) -> ReplyKeyboardMarkup:
+    """Build a reply keyboard with a Mini App button for expense entry.
+
+    Uses a ReplyKeyboardMarkup (not inline) because ``tg.sendData()``
+    in the Mini App only works when launched from a KeyboardButton or
+    the MenuButtonWebApp — it silently fails from InlineKeyboardButton.
 
     Args:
         webapp_url: Full URL (with query params) for the Mini App.
 
     Returns:
-        An :class:`InlineKeyboardMarkup` with a single WebApp button.
+        A :class:`ReplyKeyboardMarkup` with a single WebApp button.
     """
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
+    return ReplyKeyboardMarkup(
+        keyboard=[
             [
-                InlineKeyboardButton(
+                KeyboardButton(
                     text="\U0001f4dd Add Expense",
                     web_app=WebAppInfo(url=webapp_url),
                 ),
             ]
-        ]
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True,
     )
 
 
