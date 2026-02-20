@@ -2,12 +2,17 @@
 
 Creates the aiogram :class:`Bot` and :class:`Dispatcher`, registers routers
 and middleware, and exposes :func:`run_bot` to start long-polling.
+
+Also starts a lightweight aiohttp server on ``WEBAPP_PORT`` (default 8080)
+that serves the Mini App static files and a POST ``/api/expense`` endpoint
+so the Mini App can submit expenses without relying on ``sendData()``.
 """
 
 from __future__ import annotations
 
 import logging
 
+from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -17,12 +22,15 @@ from aiogram.types import BotCommand, MenuButtonWebApp, WebAppInfo
 
 from finbot.bot.handlers import router as main_router
 from finbot.bot.middleware import AccessControlMiddleware, DbSessionMiddleware
+from finbot.bot.webapp_api import create_webapp_server
 from finbot.config import settings
 from finbot.db.session import engine, get_session
 from finbot.ledger.models import Category
 from finbot.ledger.repository import save_category
 
 logger = logging.getLogger(__name__)
+
+WEBAPP_PORT = 8080
 
 
 async def _set_menu_button_webapp(bot: Bot) -> None:
@@ -36,6 +44,8 @@ async def _set_menu_button_webapp(bot: Bot) -> None:
         return
     base = settings.webapp_base_url.rstrip("/") + "/"
     url = f"{base}?cats={','.join(categories)}&currency={settings.default_currency}"
+    if settings.webapp_api_url:
+        url += f"&api={settings.webapp_api_url.rstrip('/')}"
     await bot.set_chat_menu_button(
         menu_button=MenuButtonWebApp(text="Add Expense", web_app=WebAppInfo(url=url)),
     )
@@ -111,6 +121,7 @@ async def run_bot() -> None:
         await _seed_default_categories()
         # Register bot commands so they appear in Telegram's "/" menu.
         await bot.set_my_commands([
+            BotCommand(command="add", description="Add an expense via Mini App"),
             BotCommand(command="start", description="Show welcome message"),
             BotCommand(command="help", description="Show usage guide"),
             BotCommand(command="balance", description="Show current balance"),
@@ -125,7 +136,15 @@ async def run_bot() -> None:
         logger.info("FinBot shutting down — disposing DB engine")
         await engine.dispose()
 
+    webapp = create_webapp_server(bot)
+    runner = web.AppRunner(webapp)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", WEBAPP_PORT)
+    await site.start()
+    logger.info("Mini App API server running on http://0.0.0.0:%d", WEBAPP_PORT)
+
     try:
         await dp.start_polling(bot)
     finally:
+        await runner.cleanup()
         await bot.session.close()

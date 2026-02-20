@@ -122,6 +122,14 @@ class Settings(BaseSettings):
             "When empty, the /add command is disabled."
         ),
     )
+    webapp_api_url: str = Field(
+        default="",
+        description=(
+            "Public HTTPS URL of the Mini App API server. "
+            "Passed to the Mini App as the &api= query parameter. "
+            "When empty, the Mini App uses its own origin (same-origin serving)."
+        ),
+    )
 
     # ── General ───────────────────────────────────────────────────────
     default_currency: str = Field(

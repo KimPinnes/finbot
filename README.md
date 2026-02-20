@@ -121,6 +121,9 @@ The agent will parse, ask for confirmation when needed, then commit to the ledge
 
 The **add-expense web app** (`/add`) runs only inside Telegram. If opened in a regular browser you’ll see an “Access denied” message; use the bot and tap `/add` to use it.
 
+- **User-facing actions:** See [docs/USER_ACTIONS.md](docs/USER_ACTIONS.md) for the full list of commands and actions (kept in sync with the Telegram menu and `/help`).
+- **Planned features:** See [docs/FUTURE_FEATURES.md](docs/FUTURE_FEATURES.md) for the backlog of future features and ideas.
+
 ## Project Structure
 
 ```
@@ -133,7 +136,7 @@ finbot/
 │   ├── reprocessing/     # Historical re-parsing (future)
 │   └── tools/            # Tool registry & implementations (expenses, queries, etc.)
 ├── tests/                # Mirrors src/ structure
-├── docs/                 # Technical design & ADRs
+├── docs/                 # Design, ADRs, user actions, future features
 ├── docker-compose.yml    # Dev compose (macOS)
 ├── docker-compose.prod.yml  # Prod compose (Ubuntu + GPU)
 └── pyproject.toml        # Dependencies & tool config

@@ -208,6 +208,8 @@ async def cmd_add(message: Message, session: AsyncSession) -> None:
     base = settings.webapp_base_url.rstrip("/") + "/"
     cats_param = ",".join(categories)
     url = f"{base}?cats={cats_param}&currency={settings.default_currency}"
+    if settings.webapp_api_url:
+        url += f"&api={settings.webapp_api_url.rstrip('/')}"
 
     await message.answer(
         "Tap the button below to add an expense:",
@@ -250,8 +252,10 @@ async def handle_webapp_data(message: Message, session: AsyncSession) -> None:
     for audit, sets the conversation to CONFIRMING state, and replies with
     the standard confirmation keyboard.
     """
+    logger.info("Received web_app_data from user %s", message.from_user.id if message.from_user else "?")
     if not message.from_user or not message.web_app_data:
         return
+    logger.info("web_app_data payload: %s", message.web_app_data.data)
 
     import json
 
