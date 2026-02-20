@@ -16,6 +16,34 @@
     -webkit-font-smoothing: antialiased;
   }
 
+  /* ── Access denied screen ─────────────────────── */
+  .blocked {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 60vh;
+    text-align: center;
+    padding: 40px 20px;
+  }
+  .blocked .lock-icon { font-size: 48px; margin-bottom: 16px; }
+  .blocked h2 {
+    font-size: 20px;
+    font-weight: 700;
+    margin: 0 0 8px;
+    color: var(--tg-theme-text-color, #000);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .blocked p {
+    font-size: 15px;
+    color: var(--tg-theme-hint-color, #999);
+    line-height: 1.5;
+  }
+
+  .screen { display: none; }
+  .screen.active { display: block; }
+
   h2 {
     font-size: 15px;
     font-weight: 600;
@@ -24,39 +52,56 @@
     text-transform: uppercase;
     letter-spacing: 0.5px;
   }
-  h2:first-of-type { margin-top: 8px; }
 
-  /* ── Category grid ─────────────────────────────── */
+  /* ── Category grid (landing screen) ───────────── */
   .cat-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
+    gap: 10px;
   }
-  .cat-btn {
+  .cat-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
     background: var(--tg-theme-secondary-bg-color, #f0f0f0);
-    color: var(--tg-theme-text-color, #000);
     border: 2px solid transparent;
-    border-radius: 10px;
-    padding: 10px 4px;
-    font-size: 13px;
-    font-weight: 500;
-    text-align: center;
+    border-radius: 14px;
+    padding: 18px 8px 14px;
     cursor: pointer;
     transition: all 0.15s ease;
-    text-transform: capitalize;
     -webkit-tap-highlight-color: transparent;
   }
-  .cat-btn:active { transform: scale(0.96); }
-  .cat-btn.selected {
-    background: var(--tg-theme-button-color, #3390ec);
-    color: var(--tg-theme-button-text-color, #fff);
-    border-color: var(--tg-theme-button-color, #3390ec);
+  .cat-card:active { transform: scale(0.96); }
+  .cat-card .icon { font-size: 32px; line-height: 1; margin-bottom: 8px; }
+  .cat-card .label {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: capitalize;
+    color: var(--tg-theme-text-color, #000);
+    text-align: center;
+    line-height: 1.2;
+  }
+
+  /* ── Form screen header ───────────────────────── */
+  .form-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+    padding: 12px 14px;
+    background: var(--tg-theme-secondary-bg-color, #f0f0f0);
+    border-radius: 12px;
+  }
+  .form-header .icon { font-size: 28px; line-height: 1; }
+  .form-header .name {
+    font-size: 17px;
+    font-weight: 600;
+    text-transform: capitalize;
   }
 
   /* ── Inputs ────────────────────────────────────── */
-  .field {
-    margin-top: 8px;
-  }
+  .field { margin-top: 8px; }
   .input-row {
     display: flex;
     gap: 8px;
@@ -140,85 +185,163 @@
 </head>
 <body>
 
-<h2>Category</h2>
-<div class="cat-grid" id="catGrid"></div>
+<!-- ── Access denied (shown when not opened from Telegram) ── -->
+<div class="blocked" id="blockedScreen">
+  <div class="lock-icon">&#x1F512;</div>
+  <h2>Access Denied</h2>
+  <p>This app can only be used from within Telegram.<br>Open the bot and tap <b>/add</b> to get started.</p>
+</div>
 
-<h2>Amount</h2>
-<div class="field">
-  <div class="input-row">
-    <input type="number" id="amount" inputmode="decimal" placeholder="0.00" min="0" step="any">
+<!-- ── Screen 1: Category grid ─────────────────────────────── -->
+<div class="screen" id="categoryScreen">
+  <h2>Choose a category</h2>
+  <div class="cat-grid" id="catGrid"></div>
+</div>
+
+<!-- ── Screen 2: Expense form ──────────────────────────────── -->
+<div class="screen" id="formScreen">
+  <div class="form-header" id="formHeader">
+    <span class="icon" id="formHeaderIcon"></span>
+    <span class="name" id="formHeaderName"></span>
   </div>
-</div>
 
-<h2>Description</h2>
-<div class="field">
-  <input type="text" id="description" placeholder="Optional label" autocomplete="off">
-</div>
+  <h2>Amount</h2>
+  <div class="field">
+    <div class="input-row">
+      <input type="number" id="amount" inputmode="decimal" placeholder="0.00" min="0" step="any">
+    </div>
+  </div>
 
-<h2>Who paid?</h2>
-<div class="seg-control" id="payerControl">
-  <button class="seg-btn selected" data-value="user">I paid</button>
-  <button class="seg-btn" data-value="partner">Partner paid</button>
-</div>
+  <h2>Description</h2>
+  <div class="field">
+    <input type="text" id="description" placeholder="Optional label" autocomplete="off">
+  </div>
 
-<h2>Split</h2>
-<div class="seg-control" id="splitControl">
-  <button class="seg-btn selected" data-value="50">50 / 50</button>
-  <button class="seg-btn" data-value="100">100 / 0</button>
-  <button class="seg-btn" data-value="custom">Custom</button>
-</div>
-<div class="custom-split" id="customSplit">
-  <input type="number" id="splitPayer" inputmode="numeric" placeholder="Payer %" min="0" max="100" value="50">
-  <span>/</span>
-  <input type="number" id="splitOther" inputmode="numeric" placeholder="Other %" min="0" max="100" value="50">
-</div>
+  <h2>Who paid?</h2>
+  <div class="seg-control" id="payerControl">
+    <button class="seg-btn selected" data-value="user">I paid</button>
+    <button class="seg-btn" data-value="partner">Partner paid</button>
+  </div>
 
-<h2>Date</h2>
-<div class="field">
-  <input type="date" id="eventDate">
-</div>
+  <h2>Split</h2>
+  <div class="seg-control" id="splitControl">
+    <button class="seg-btn selected" data-value="50">50 / 50</button>
+    <button class="seg-btn" data-value="100">100 / 0</button>
+    <button class="seg-btn" data-value="custom">Custom</button>
+  </div>
+  <div class="custom-split" id="customSplit">
+    <input type="number" id="splitPayer" inputmode="numeric" placeholder="Payer %" min="0" max="100" value="50">
+    <span>/</span>
+    <input type="number" id="splitOther" inputmode="numeric" placeholder="Other %" min="0" max="100" value="50">
+  </div>
 
-<p class="hint" id="hint">Select a category and enter an amount to continue.</p>
+  <h2>Date</h2>
+  <div class="field">
+    <input type="date" id="eventDate">
+  </div>
+
+  <p class="hint" id="hint">Enter an amount to continue.</p>
+</div>
 
 <script>
 (function() {
-  const tg = window.Telegram.WebApp;
+  var tg = window.Telegram.WebApp;
   tg.ready();
+
+  // ── Auth guard ──────────────────────────────────────
+  if (!tg.initData || !tg.initDataUnsafe || !tg.initDataUnsafe.user) {
+    document.getElementById('blockedScreen').style.display = 'flex';
+    return;
+  }
+
+  document.getElementById('blockedScreen').style.display = 'none';
   tg.expand();
 
-  // ── Read params from URL ──────────────────────────
-  const params = new URLSearchParams(window.location.search);
-  const categories = (params.get('cats') || '').split(',').filter(Boolean);
-  const currency = params.get('currency') || 'ILS';
+  // ── Category icon map ──────────────────────────────
+  var ICONS = {
+    clothing: "\uD83D\uDC55", coffee: "\u2615", dining: "\uD83C\uDF7D\uFE0F",
+    education: "\uD83D\uDCDA", entertainment: "\uD83C\uDFAC", gas: "\u26FD",
+    gifts: "\uD83C\uDF81", groceries: "\uD83D\uDED2", health: "\uD83D\uDC8A",
+    home: "\uD83C\uDFE0", insurance: "\uD83D\uDEE1\uFE0F", personal: "\uD83D\uDC87",
+    subscriptions: "\uD83D\uDCF1", transport: "\uD83D\uDE8C", travel: "\u2708\uFE0F",
+    utilities: "\uD83D\uDCA1"
+  };
+  var DEFAULT_ICON = "\uD83D\uDCB0";
 
-  // ── State ─────────────────────────────────────────
-  let selectedCat = null;
-  let payer = 'user';
-  let splitMode = '50';
+  function iconFor(cat) {
+    return ICONS[cat.toLowerCase()] || DEFAULT_ICON;
+  }
 
-  // ── Render category grid ──────────────────────────
-  const catGrid = document.getElementById('catGrid');
-  categories.forEach(function(cat) {
-    const btn = document.createElement('button');
-    btn.className = 'cat-btn';
-    btn.textContent = cat;
-    btn.addEventListener('click', function() {
-      document.querySelectorAll('.cat-btn').forEach(function(b) { b.classList.remove('selected'); });
-      btn.classList.add('selected');
-      selectedCat = cat;
-      validate();
-    });
-    catGrid.appendChild(btn);
+  // ── Read params from URL ────────────────────────────
+  var params = new URLSearchParams(window.location.search);
+  var categories = (params.get('cats') || '').split(',').filter(Boolean);
+  var currency = params.get('currency') || 'ILS';
+
+  // ── State ──────────────────────────────────────────
+  var selectedCat = null;
+  var payer = 'user';
+  var splitMode = '50';
+
+  var categoryScreen = document.getElementById('categoryScreen');
+  var formScreen = document.getElementById('formScreen');
+
+  // ── Screen navigation ──────────────────────────────
+  function showCategoryScreen() {
+    formScreen.classList.remove('active');
+    categoryScreen.classList.add('active');
+    tg.BackButton.hide();
+    tg.MainButton.hide();
+  }
+
+  function showFormScreen() {
+    categoryScreen.classList.remove('active');
+    formScreen.classList.add('active');
+
+    document.getElementById('formHeaderIcon').textContent = iconFor(selectedCat);
+    document.getElementById('formHeaderName').textContent = selectedCat;
+
+    tg.BackButton.show();
+    validate();
+  }
+
+  tg.BackButton.onClick(function() {
+    showCategoryScreen();
   });
 
-  // ── Date default = today ──────────────────────────
-  const dateInput = document.getElementById('eventDate');
-  const now = new Date();
+  // ── Render category grid ───────────────────────────
+  var catGrid = document.getElementById('catGrid');
+  categories.forEach(function(cat) {
+    var card = document.createElement('button');
+    card.className = 'cat-card';
+
+    var iconSpan = document.createElement('span');
+    iconSpan.className = 'icon';
+    iconSpan.textContent = iconFor(cat);
+    card.appendChild(iconSpan);
+
+    var labelSpan = document.createElement('span');
+    labelSpan.className = 'label';
+    labelSpan.textContent = cat;
+    card.appendChild(labelSpan);
+
+    card.addEventListener('click', function() {
+      selectedCat = cat;
+      showFormScreen();
+    });
+    catGrid.appendChild(card);
+  });
+
+  // Start on the category screen
+  showCategoryScreen();
+
+  // ── Date default = today ───────────────────────────
+  var dateInput = document.getElementById('eventDate');
+  var now = new Date();
   dateInput.value = now.getFullYear() + '-' +
     String(now.getMonth() + 1).padStart(2, '0') + '-' +
     String(now.getDate()).padStart(2, '0');
 
-  // ── Segmented control wiring ──────────────────────
+  // ── Segmented control wiring ───────────────────────
   function wireSegControl(id, onChange) {
     var container = document.getElementById(id);
     var buttons = container.querySelectorAll('.seg-btn');
@@ -243,7 +366,6 @@
     validate();
   });
 
-  // Keep custom split inputs complementary
   var splitPayerInput = document.getElementById('splitPayer');
   var splitOtherInput = document.getElementById('splitOther');
   splitPayerInput.addEventListener('input', function() {
@@ -261,16 +383,16 @@
     validate();
   });
 
-  // ── Amount input ──────────────────────────────────
+  // ── Amount input ───────────────────────────────────
   var amountInput = document.getElementById('amount');
   amountInput.addEventListener('input', validate);
 
-  // ── Validation & MainButton ───────────────────────
+  // ── Validation & MainButton ────────────────────────
   var hint = document.getElementById('hint');
 
   function validate() {
     var amount = parseFloat(amountInput.value);
-    var valid = selectedCat && amount > 0;
+    var valid = amount > 0;
 
     if (splitMode === 'custom') {
       var sp = parseInt(splitPayerInput.value, 10);
@@ -281,22 +403,16 @@
     }
 
     if (valid) {
-      tg.MainButton.setText('Submit — ' + currency + ' ' + amount.toFixed(2));
+      tg.MainButton.setText('Submit \u2014 ' + currency + ' ' + amount.toFixed(2));
       tg.MainButton.show();
       hint.textContent = '';
     } else {
       tg.MainButton.hide();
-      if (!selectedCat && !(amount > 0)) {
-        hint.textContent = 'Select a category and enter an amount to continue.';
-      } else if (!selectedCat) {
-        hint.textContent = 'Select a category to continue.';
-      } else {
-        hint.textContent = 'Enter a valid amount to continue.';
-      }
+      hint.textContent = 'Enter a valid amount to continue.';
     }
   }
 
-  // ── Submit ────────────────────────────────────────
+  // ── Submit ─────────────────────────────────────────
   tg.MainButton.onClick(function() {
     var splitPayerPct, splitOtherPct;
     if (splitMode === '50') {
@@ -329,8 +445,6 @@
     text_color: tg.themeParams.button_text_color || '#ffffff'
   });
   tg.MainButton.hide();
-
-  validate();
 })();
 </script>
 </body>

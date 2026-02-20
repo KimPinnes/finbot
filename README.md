@@ -116,7 +116,10 @@ The agent will parse, ask for confirmation when needed, then commit to the ledge
 | `/help` | Detailed usage guide |
 | `/balance` | Show the current balance between partners |
 | `/setup <partner_id>` | Create a partnership (one-time setup) |
+| `/add` | Open the add-expense web app (category picker → amount, split, date) |
 | `/categories` | View and rename expense categories (type *cancel* to abort a rename) |
+
+The **add-expense web app** (`/add`) runs only inside Telegram. If opened in a regular browser you’ll see an “Access denied” message; use the bot and tap `/add` to use it.
 
 ## Project Structure
 
