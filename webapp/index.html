@@ -238,7 +238,6 @@
   <div class="empty-state" id="emptyState" style="display:none">
     <div class="empty-icon">&#x1F4AD;</div>
     <p>No categories loaded.<br>Go back to the bot and tap <b>/add</b> again.</p>
-    <p id="debugUrl" style="margin-top:12px;font-size:11px;word-break:break-all;color:#999;"></p>
   </div>
 </div>
 
@@ -375,10 +374,6 @@
 
   if (categories.length === 0) {
     emptyState.style.display = 'flex';
-    var debugEl = document.getElementById('debugUrl');
-    if (debugEl) {
-      debugEl.textContent = 'Debug: query = ' + (window.location.search || '(none)');
-    }
   } else {
     categories.forEach(function(cat) {
       var info = catInfo(cat);

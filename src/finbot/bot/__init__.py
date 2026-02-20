@@ -11,15 +11,35 @@ import logging
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.types import BotCommand
+from sqlalchemy import select
+
+from aiogram.types import BotCommand, MenuButtonWebApp, WebAppInfo
 
 from finbot.bot.handlers import router as main_router
 from finbot.bot.middleware import AccessControlMiddleware, DbSessionMiddleware
 from finbot.config import settings
 from finbot.db.session import engine, get_session
+from finbot.ledger.models import Category
 from finbot.ledger.repository import save_category
 
 logger = logging.getLogger(__name__)
+
+
+async def _set_menu_button_webapp(bot: Bot) -> None:
+    """Set the bot menu button to open the Mini App with categories in the URL."""
+    if not settings.webapp_base_url:
+        return
+    async with get_session() as session:
+        result = await session.execute(select(Category.name).order_by(Category.name))
+        categories = list(result.scalars().all())
+    if not categories:
+        return
+    base = settings.webapp_base_url.rstrip("/") + "/"
+    url = f"{base}?cats={','.join(categories)}&currency={settings.default_currency}"
+    await bot.set_chat_menu_button(
+        menu_button=MenuButtonWebApp(text="Add Expense", web_app=WebAppInfo(url=url)),
+    )
+    logger.info("Set menu button to Mini App with %d categories", len(categories))
 
 
 def create_dispatcher() -> Dispatcher:
@@ -98,6 +118,7 @@ async def run_bot() -> None:
             BotCommand(command="categories", description="View and rename categories"),
         ])
         logger.info("Registered bot commands with Telegram")
+        await _set_menu_button_webapp(bot)
 
     @dp.shutdown.register
     async def on_shutdown() -> None:
