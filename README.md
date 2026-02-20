@@ -47,7 +47,7 @@ Edit `.env` and set at least:
 
 - `TELEGRAM_BOT_TOKEN` — from BotFather
 - `ALLOWED_TELEGRAM_USER_IDS` — comma-separated Telegram user IDs (e.g. `[123456789,987654321]`)
-- `DATABASE_URL` — if not using Docker: `postgresql+asyncpg://user:pass@localhost:5432/finbot`
+- `DATABASE_URL` — if not using Docker: `postgresql+asyncpg://user:pass@localhost:5433/finbot`
 - For the agent: either run **Ollama** and set `OLLAMA_BASE_URL` / `OLLAMA_MODEL`, or set `FALLBACK_LLM_PROVIDER`, `FALLBACK_LLM_MODEL`, and the corresponding API key (`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`)
 
 See `.env.example` for all options (currency, default split behavior, debug, etc.).
@@ -60,7 +60,7 @@ See `.env.example` for all options (currency, default split behavior, debug, etc
 docker compose up -d db
 ```
 
-This starts PostgreSQL on port 5432 with `DATABASE_URL=postgresql+asyncpg://finbot:finbot@localhost:5432/finbot`.
+This starts PostgreSQL on port 5433 with `DATABASE_URL=postgresql+asyncpg://finbot:finbot@localhost:5433/finbot`.
 
 **Option B — Existing PostgreSQL**
 

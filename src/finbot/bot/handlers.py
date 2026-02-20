@@ -40,6 +40,7 @@ WELCOME_TEXT = (
     "for example:\n"
     '  <i>"groceries 300, I paid, split 50/50"</i>\n'
     '  <i>"how much do we owe each other?"</i>\n\n'
+    "Or use /add to open the expense form.\n\n"
     "Type /help for more details."
 )
 
@@ -58,6 +59,7 @@ HELP_TEXT = (
     "<u>Commands</u>\n"
     "/start — Show welcome message\n"
     "/help — Show this help text\n"
+    "/add — Open expense form (Mini App)\n"
     "/balance — Show current balance\n"
     "/setup &lt;partner_id&gt; — Link with your partner (one-time setup)\n"
     "/categories — View and rename expense categories"
@@ -177,6 +179,42 @@ async def cmd_setup(message: Message, session: AsyncSession) -> None:
         )
 
 
+@router.message(Command("add"))
+async def cmd_add(message: Message, session: AsyncSession) -> None:
+    """Handle the /add command — open the Mini App for structured expense entry."""
+    if not message.from_user:
+        return
+
+    from finbot.config import settings
+
+    if not settings.webapp_base_url:
+        await message.answer(
+            "<i>Mini App not configured. Set <code>WEBAPP_BASE_URL</code> in your .env.</i>"
+        )
+        return
+
+    from sqlalchemy import select
+
+    from finbot.bot.keyboards import webapp_keyboard
+    from finbot.ledger.models import Category
+
+    result = await session.execute(select(Category.name).order_by(Category.name))
+    categories = list(result.scalars().all())
+
+    if not categories:
+        await message.answer("<i>No categories found. Add some first.</i>")
+        return
+
+    base = settings.webapp_base_url.rstrip("/") + "/"
+    cats_param = ",".join(categories)
+    url = f"{base}?cats={cats_param}&currency={settings.default_currency}"
+
+    await message.answer(
+        "Tap the button below to add an expense:",
+        reply_markup=webapp_keyboard(url),
+    )
+
+
 @router.message(Command("categories"))
 async def cmd_categories(message: Message, session: AsyncSession) -> None:
     """Handle the /categories command — list categories with rename option."""
@@ -199,6 +237,70 @@ async def cmd_categories(message: Message, session: AsyncSession) -> None:
         "<b>Expense categories</b>\n\nTap a category to <b>rename</b> it:",
         reply_markup=categories_keyboard(names),
     )
+
+
+# ── Mini App data handler ─────────────────────────────────────────────────────
+
+
+@router.message(F.web_app_data)
+async def handle_webapp_data(message: Message, session: AsyncSession) -> None:
+    """Process data submitted from the Telegram Mini App.
+
+    Parses the JSON payload into a PendingExpense, saves a raw_input row
+    for audit, sets the conversation to CONFIRMING state, and replies with
+    the standard confirmation keyboard.
+    """
+    if not message.from_user or not message.web_app_data:
+        return
+
+    import json
+
+    from finbot.agent.state import (
+        ConversationContext,
+        ConversationState,
+        PendingExpense,
+        conversation_store,
+    )
+    from finbot.bot.formatters import format_confirmation_summary
+    from finbot.bot.keyboards import confirmation_keyboard
+
+    user_id = message.from_user.id
+
+    try:
+        data = json.loads(message.web_app_data.data)
+    except (json.JSONDecodeError, TypeError):
+        await message.answer("<i>Invalid data received from the Mini App.</i>")
+        return
+
+    expense = PendingExpense.from_parsed(data)
+
+    if not expense.is_complete():
+        missing = ", ".join(expense.missing_fields())
+        await message.answer(f"<i>Missing fields: {missing}. Please try again.</i>")
+        return
+
+    raw_input = await save_raw_input(
+        session=session,
+        telegram_user_id=user_id,
+        raw_text=f"[webapp] {message.web_app_data.data}",
+    )
+
+    ctx = ConversationContext(
+        state=ConversationState.CONFIRMING,
+        raw_input_id=raw_input.id,
+        pending_expenses=[expense],
+        original_text=message.web_app_data.data,
+    )
+    conversation_store.set(user_id, ctx)
+
+    summary = format_confirmation_summary([expense])
+    sent = await message.answer(
+        summary,
+        reply_markup=confirmation_keyboard(),
+    )
+
+    ctx.confirmation_message_id = sent.message_id
+    conversation_store.set(user_id, ctx)
 
 
 # ── General text handler ──────────────────────────────────────────────────────

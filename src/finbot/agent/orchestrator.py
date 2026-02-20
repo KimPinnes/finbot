@@ -48,8 +48,11 @@ from finbot.agent.state import (
     PendingExpense,
     conversation_store,
 )
-from finbot.config import settings
+from finbot.config import UTILITY_SUBTYPES, settings
 from finbot.ledger.repository import (
+    ensure_category_alias,
+    get_category_aliases,
+    get_category_aliases_safe,
     get_partner_id,
     get_partnership,
     save_failure,
@@ -298,7 +301,10 @@ class Orchestrator:
 
         parsed = self._extract_parsed(response)
         if parsed and parsed.get("expenses"):
-            parsed = _postprocess_parsed_expenses(text, parsed)
+            alias_map = await get_category_aliases_safe(session) if session else {}
+            if not alias_map:
+                logger.debug("Could not load category aliases from DB, using fallback")
+            parsed = _postprocess_parsed_expenses(text, parsed, alias_map=alias_map or None)
 
         # Handle non-expense intents (only when no expenses were extracted).
         has_expenses = parsed and parsed.get("expenses")
@@ -642,21 +648,25 @@ class Orchestrator:
             ctx.state = ConversationState.CONFIRMING
             self._store.set(user_id, ctx)
 
-            # Load known categories from DB (falls back to defaults).
+            # Load known categories and label→category aliases from DB.
             known_cats = set(c.lower() for c in settings.default_categories)
+            alias_map: dict[str, str] | None = None
             if session is not None:
                 try:
-                    from finbot.tools.categories import list_categories
+                    async with session.begin_nested():
+                        from finbot.tools.categories import list_categories
 
-                    cat_result = await list_categories(session=session)
-                    db_cats = cat_result.get("categories", [])
-                    known_cats.update(c.lower() for c in db_cats)
+                        cat_result = await list_categories(session=session)
+                        db_cats = cat_result.get("categories", [])
+                        known_cats.update(c.lower() for c in db_cats)
+                        alias_map = await get_category_aliases(session)
                 except Exception:
-                    logger.debug("Could not load categories from DB, using defaults")
+                    logger.debug("Could not load categories/aliases from DB, using defaults")
 
             summary = format_confirmation_summary(
                 ctx.pending_expenses,
                 known_categories=known_cats,
+                category_aliases=alias_map,
             )
             return OrchestratorResult(
                 reply_text=summary,
@@ -694,6 +704,8 @@ class Orchestrator:
         """Merge a clarification answer into the pending data and re-validate."""
         field_name = ctx.clarification_field or "unknown"
 
+        alias_map = await get_category_aliases_safe(session) or None
+
         # ── Settlement-specific clarification handling ────────────────
         is_settlement = getattr(ctx, "is_settlement", False)
         if is_settlement and ctx.pending_expenses:
@@ -703,6 +715,9 @@ class Orchestrator:
             if result is not None:
                 return result
         # ── End settlement-specific handling ──────────────────────────
+
+        # Snapshot categories before the merge so we can detect corrections.
+        old_categories = [(e.category or "").strip().lower() for e in ctx.pending_expenses]
 
         # Build a summary of current parsed data for the LLM.
         parsed_summary = _expenses_to_summary(ctx.pending_expenses)
@@ -752,9 +767,15 @@ class Orchestrator:
 
         if parsed and parsed.get("expenses"):
             # Update the pending expenses with merged data.
+            old_expenses = ctx.pending_expenses
             new_expenses = [PendingExpense.from_parsed(exp) for exp in parsed["expenses"]]
             # Preserve count: if LLM returns different count, keep original.
-            if len(new_expenses) == len(ctx.pending_expenses):
+            if len(new_expenses) == len(old_expenses):
+                new_expenses = _preserve_original_fields_on_merge(old_expenses, new_expenses)
+                # Normalise categories using persistent alias map.
+                for e in new_expenses:
+                    if e.category:
+                        e.category = _normalize_category(e.category, alias_map=alias_map) or e.category
                 ctx.pending_expenses = new_expenses
             else:
                 # LLM returned wrong count — try to merge field manually.
@@ -762,10 +783,25 @@ class Orchestrator:
                     ctx.pending_expenses,
                     field_name,
                     answer,
+                    alias_map=alias_map,
                 )
         else:
             # LLM didn't return tool calls — try manual merge.
-            _merge_field_manually(ctx.pending_expenses, field_name, answer)
+            _merge_field_manually(ctx.pending_expenses, field_name, answer, alias_map=alias_map)
+
+        # Learn: if the user corrected a category, persist as alias for next time.
+        if field_name in ("category", "unknown"):
+            for i, new_exp in enumerate(ctx.pending_expenses):
+                if i >= len(old_categories):
+                    break
+                old_cat = old_categories[i]
+                new_cat = (new_exp.category or "").strip().lower()
+                if old_cat and new_cat and old_cat != new_cat:
+                    try:
+                        await ensure_category_alias(session, old_cat, new_cat)
+                        logger.info("Learned alias: %s -> %s", old_cat, new_cat)
+                    except Exception:
+                        logger.debug("Failed to persist alias %s -> %s", old_cat, new_cat)
 
         ctx.state = ConversationState.VALIDATING
         ctx.clarification_field = None
@@ -898,6 +934,8 @@ class Orchestrator:
 
         from finbot.ledger.repository import save_category
 
+        alias_map = await get_category_aliases_safe(session) or None
+
         committed: list[str] = []
         for exp in ctx.pending_expenses:
             if exp.amount is None:
@@ -913,9 +951,18 @@ class Orchestrator:
                 session,
             )
 
+            # Normalise label → canonical category before persisting.
+            original_cat = (exp.category or "").strip().lower()
+            category = _normalize_category(exp.category, alias_map=alias_map) or exp.category
+
             # Ensure the category exists in the categories table.
-            if exp.category:
-                await save_category(session, exp.category.strip().lower())
+            if category:
+                await save_category(session, category.strip().lower())
+
+            # Tag when saved mapping overrode the model's category.
+            tags: list[str] = []
+            if category and original_cat and category.strip().lower() != original_cat:
+                tags.append(f"category_from_alias:{original_cat}->{category.strip().lower()}")
 
             await save_ledger_entry(
                 session,
@@ -923,14 +970,15 @@ class Orchestrator:
                 event_type=event_type,
                 amount=Decimal(str(exp.amount)),
                 currency=exp.currency,
-                category=exp.category,
+                category=category,
                 payer_telegram_id=payer_tid,
                 split_payer_pct=Decimal(str(exp.split_payer_pct or 100)),
                 split_other_pct=Decimal(str(exp.split_other_pct or 0)),
                 event_date=event_date,
                 description=exp.description,
+                tags=tags or None,
             )
-            label = _build_commit_label(exp.description, exp.category, event_type)
+            label = _build_commit_label(exp.description, category, event_type)
             committed.append(f"  {exp.currency} {exp.amount} — {label}")
 
         ctx.state = ConversationState.COMMITTING
@@ -1040,7 +1088,7 @@ def _build_clarification_question(
     templates: dict[str, str] = {
         "payer": f"{prefix}Who paid{context}? You or your partner?".strip(),
         "category": f"{prefix}What category is this expense{context}? "
-        f"(e.g. groceries, gas, dining, coffee)".strip(),
+        f"(e.g. groceries, gas, dining, coffee, utilities)".strip(),
         "split_payer_pct": (
             f"{prefix}How should this expense{context} be split? (e.g. 50/50, 70/30, or 100/0)"
         ).strip(),
@@ -1073,10 +1121,35 @@ def _expenses_to_summary(expenses: list[PendingExpense]) -> str:
     return "\n\n".join(lines)
 
 
+def _preserve_original_fields_on_merge(
+    old_expenses: list[PendingExpense],
+    new_expenses: list[PendingExpense],
+) -> list[PendingExpense]:
+    """When merging a clarification/correction, preserve original description and
+    other fields so the approval message still shows the full label (e.g. Internet (utilities)).
+    """
+    result: list[PendingExpense] = []
+    for old_exp, new_exp in zip(old_expenses, new_expenses):
+        updates: dict[str, Any] = {}
+        if (old_exp.description or "").strip() and not (new_exp.description or "").strip():
+            updates["description"] = old_exp.description
+        if (old_exp.event_date or "").strip() and not (new_exp.event_date or "").strip():
+            updates["event_date"] = old_exp.event_date
+        if old_exp.amount is not None and new_exp.amount is None:
+            updates["amount"] = old_exp.amount
+        if updates:
+            result.append(new_exp.model_copy(update=updates))
+        else:
+            result.append(new_exp)
+    return result
+
+
 def _merge_field_manually(
     expenses: list[PendingExpense],
     field_name: str,
     answer: str,
+    *,
+    alias_map: dict[str, str] | None = None,
 ) -> None:
     """Best-effort manual merge when the LLM doesn't return tool calls.
 
@@ -1103,7 +1176,8 @@ def _merge_field_manually(
                 exp.split_other_pct = other_pct
 
         elif field_name == "category":
-            exp.category = answer_stripped or None
+            raw = answer_stripped or None
+            exp.category = _normalize_category(raw, alias_map=alias_map) if raw else None
 
         elif field_name == "amount":
             with contextlib.suppress(ValueError):
@@ -1311,9 +1385,24 @@ def _should_override_event_date(
     return abs((parsed - relative_date).days) > 366
 
 
+def _normalize_category(
+    category: str | None,
+    alias_map: dict[str, str] | None = None,
+) -> str | None:
+    """Map label to canonical category: use DB alias map first, then hardcoded fallback."""
+    if not category or not category.strip():
+        return category
+    c = category.strip().lower()
+    if alias_map and c in alias_map:
+        return alias_map[c]
+    return "utilities" if c in UTILITY_SUBTYPES else c
+
+
 def _postprocess_parsed_expenses(
     text: str,
     parsed: dict[str, Any],
+    *,
+    alias_map: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Apply deterministic fixes to LLM-parsed expenses."""
     expenses = parsed.get("expenses") or []
@@ -1328,6 +1417,16 @@ def _postprocess_parsed_expenses(
 
     for exp in expenses:
         notes = exp.get("notes") or []
+
+        # Normalise label → category using DB alias map or hardcoded utility subtypes.
+        cat = exp.get("category")
+        normalized = _normalize_category(cat, alias_map=alias_map)
+        if normalized and normalized != (cat or "").strip().lower():
+            exp["category"] = normalized
+            notes.append(
+                f"Category auto-mapped: '{(cat or '').strip()}' -> {normalized}"
+                " (from saved mapping)"
+            )
         amount = exp.get("amount")
         try:
             amount_val = float(amount) if amount is not None else None
@@ -1342,6 +1441,14 @@ def _postprocess_parsed_expenses(
         if effective_date and _should_override_event_date(exp.get("event_date"), effective_date):
             exp["event_date"] = effective_date.isoformat()
             notes.append(f"Date auto-corrected to {effective_date.isoformat()}")
+
+        # Fix wrong year (e.g. LLM returning 2023 when current year is different).
+        existing = exp.get("event_date")
+        if existing:
+            fixed = _normalize_event_date_year(existing)
+            if fixed and fixed != existing:
+                exp["event_date"] = fixed
+                notes.append(f"Date year corrected to {fixed[:4]}")
 
         if notes:
             exp["notes"] = notes
@@ -1415,12 +1522,29 @@ def _looks_like_query(text: str) -> bool:
     return bool(re.search(r"\brecent|last\s+few|latest\b", lowered))
 
 
+def _normalize_event_date_year(date_str: str | None) -> str | None:
+    """If date_str is YYYY-MM-DD with year 2023 but current year is not 2023,
+    return the same month/day with current year so approval/commit show correct year.
+    """
+    if not date_str or not date_str.strip():
+        return date_str
+    try:
+        d = datetime.strptime(date_str.strip(), "%Y-%m-%d").date()
+        today = date.today()
+        if d.year == 2023 and today.year != 2023:
+            return date(today.year, d.month, d.day).isoformat()
+    except ValueError:
+        pass
+    return date_str
+
+
 def _resolve_date(date_str: str | None) -> date:
     """Convert a date string to a :class:`date` object, defaulting to today."""
     if not date_str:
         return date.today()
+    normalized = _normalize_event_date_year(date_str) or date_str
     try:
-        return datetime.strptime(date_str, "%Y-%m-%d").date()
+        return datetime.strptime(normalized, "%Y-%m-%d").date()
     except ValueError:
         return date.today()
 

@@ -16,7 +16,15 @@ from decimal import Decimal
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from finbot.ledger.models import Category, FailureLog, LedgerEntry, LLMCall, Partnership, RawInput
+from finbot.ledger.models import (
+    Category,
+    CategoryAlias,
+    FailureLog,
+    LedgerEntry,
+    LLMCall,
+    Partnership,
+    RawInput,
+)
 
 
 async def save_raw_input(
@@ -403,6 +411,51 @@ def get_partner_id(partnership: Partnership, user_id: int) -> int:
     if partnership.user_a_telegram_id == user_id:
         return partnership.user_b_telegram_id
     return partnership.user_a_telegram_id
+
+
+# ── Category aliases (label → category mapping) ─────────────────────────────
+
+
+async def get_category_aliases(session: AsyncSession) -> dict[str, str]:
+    """Load all label → category mappings from the database.
+
+    Returns a dict mapping lowercase label to category (e.g. {"internet": "utilities"}).
+    Used to normalize parsed or user-entered labels to a canonical category.
+    """
+    stmt = select(CategoryAlias.label, CategoryAlias.category)
+    result = await session.execute(stmt)
+    return {row.label.lower(): row.category.lower() for row in result.all()}
+
+
+async def get_category_aliases_safe(session: AsyncSession) -> dict[str, str]:
+    """Load category aliases inside a savepoint; return {} if the query fails.
+
+    Use this when the category_aliases table may not exist (e.g. migration not
+    applied). A failed query aborts only the savepoint, not the outer transaction.
+    """
+    try:
+        async with session.begin_nested():
+            return await get_category_aliases(session)
+    except Exception:
+        return {}
+
+
+async def ensure_category_alias(
+    session: AsyncSession,
+    label: str,
+    category: str,
+) -> None:
+    """Insert or replace a label → category mapping. Caller must commit."""
+    normalised_label = label.strip().lower()
+    normalised_category = category.strip().lower()
+    if not normalised_label or not normalised_category:
+        return
+    alias = CategoryAlias(
+        label=normalised_label,
+        category=normalised_category,
+    )
+    await session.merge(alias)
+    await session.flush()
 
 
 # ── Category management ──────────────────────────────────────────────────────

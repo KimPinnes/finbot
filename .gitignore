@@ -31,6 +31,8 @@ docker-compose.override.yml
 # Database
 *.db
 *.sqlite3
+*_backup*.sql
+*_dump*.sql
 
 # OS
 .DS_Store

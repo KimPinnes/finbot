@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>FinBot — Add Expense</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background: var(--tg-theme-bg-color, #fff);
+    color: var(--tg-theme-text-color, #000);
+    padding: 16px 16px 100px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h2 {
+    font-size: 15px;
+    font-weight: 600;
+    margin: 20px 0 8px;
+    color: var(--tg-theme-hint-color, #999);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  h2:first-of-type { margin-top: 8px; }
+
+  /* ── Category grid ─────────────────────────────── */
+  .cat-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+  .cat-btn {
+    background: var(--tg-theme-secondary-bg-color, #f0f0f0);
+    color: var(--tg-theme-text-color, #000);
+    border: 2px solid transparent;
+    border-radius: 10px;
+    padding: 10px 4px;
+    font-size: 13px;
+    font-weight: 500;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-transform: capitalize;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .cat-btn:active { transform: scale(0.96); }
+  .cat-btn.selected {
+    background: var(--tg-theme-button-color, #3390ec);
+    color: var(--tg-theme-button-text-color, #fff);
+    border-color: var(--tg-theme-button-color, #3390ec);
+  }
+
+  /* ── Inputs ────────────────────────────────────── */
+  .field {
+    margin-top: 8px;
+  }
+  .input-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  input[type="number"],
+  input[type="text"],
+  input[type="date"] {
+    width: 100%;
+    background: var(--tg-theme-secondary-bg-color, #f0f0f0);
+    color: var(--tg-theme-text-color, #000);
+    border: 1.5px solid transparent;
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-size: 16px;
+    outline: none;
+    transition: border-color 0.15s;
+    -webkit-appearance: none;
+  }
+  input:focus {
+    border-color: var(--tg-theme-button-color, #3390ec);
+  }
+  input::placeholder {
+    color: var(--tg-theme-hint-color, #999);
+  }
+
+  /* ── Segmented controls ────────────────────────── */
+  .seg-control {
+    display: flex;
+    background: var(--tg-theme-secondary-bg-color, #f0f0f0);
+    border-radius: 10px;
+    padding: 3px;
+    gap: 3px;
+  }
+  .seg-btn {
+    flex: 1;
+    background: transparent;
+    color: var(--tg-theme-text-color, #000);
+    border: none;
+    border-radius: 8px;
+    padding: 9px 6px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .seg-btn.selected {
+    background: var(--tg-theme-button-color, #3390ec);
+    color: var(--tg-theme-button-text-color, #fff);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+  }
+
+  /* ── Custom split inputs ───────────────────────── */
+  .custom-split {
+    display: none;
+    gap: 8px;
+    margin-top: 8px;
+    align-items: center;
+  }
+  .custom-split.visible { display: flex; }
+  .custom-split input {
+    flex: 1;
+    text-align: center;
+  }
+  .custom-split span {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--tg-theme-hint-color, #999);
+  }
+
+  /* ── Validation hint ───────────────────────────── */
+  .hint {
+    text-align: center;
+    color: var(--tg-theme-hint-color, #999);
+    font-size: 13px;
+    margin-top: 24px;
+    padding: 0 16px;
+  }
+</style>
+</head>
+<body>
+
+<h2>Category</h2>
+<div class="cat-grid" id="catGrid"></div>
+
+<h2>Amount</h2>
+<div class="field">
+  <div class="input-row">
+    <input type="number" id="amount" inputmode="decimal" placeholder="0.00" min="0" step="any">
+  </div>
+</div>
+
+<h2>Description</h2>
+<div class="field">
+  <input type="text" id="description" placeholder="Optional label" autocomplete="off">
+</div>
+
+<h2>Who paid?</h2>
+<div class="seg-control" id="payerControl">
+  <button class="seg-btn selected" data-value="user">I paid</button>
+  <button class="seg-btn" data-value="partner">Partner paid</button>
+</div>
+
+<h2>Split</h2>
+<div class="seg-control" id="splitControl">
+  <button class="seg-btn selected" data-value="50">50 / 50</button>
+  <button class="seg-btn" data-value="100">100 / 0</button>
+  <button class="seg-btn" data-value="custom">Custom</button>
+</div>
+<div class="custom-split" id="customSplit">
+  <input type="number" id="splitPayer" inputmode="numeric" placeholder="Payer %" min="0" max="100" value="50">
+  <span>/</span>
+  <input type="number" id="splitOther" inputmode="numeric" placeholder="Other %" min="0" max="100" value="50">
+</div>
+
+<h2>Date</h2>
+<div class="field">
+  <input type="date" id="eventDate">
+</div>
+
+<p class="hint" id="hint">Select a category and enter an amount to continue.</p>
+
+<script>
+(function() {
+  const tg = window.Telegram.WebApp;
+  tg.ready();
+  tg.expand();
+
+  // ── Read params from URL ──────────────────────────
+  const params = new URLSearchParams(window.location.search);
+  const categories = (params.get('cats') || '').split(',').filter(Boolean);
+  const currency = params.get('currency') || 'ILS';
+
+  // ── State ─────────────────────────────────────────
+  let selectedCat = null;
+  let payer = 'user';
+  let splitMode = '50';
+
+  // ── Render category grid ──────────────────────────
+  const catGrid = document.getElementById('catGrid');
+  categories.forEach(function(cat) {
+    const btn = document.createElement('button');
+    btn.className = 'cat-btn';
+    btn.textContent = cat;
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('.cat-btn').forEach(function(b) { b.classList.remove('selected'); });
+      btn.classList.add('selected');
+      selectedCat = cat;
+      validate();
+    });
+    catGrid.appendChild(btn);
+  });
+
+  // ── Date default = today ──────────────────────────
+  const dateInput = document.getElementById('eventDate');
+  const now = new Date();
+  dateInput.value = now.getFullYear() + '-' +
+    String(now.getMonth() + 1).padStart(2, '0') + '-' +
+    String(now.getDate()).padStart(2, '0');
+
+  // ── Segmented control wiring ──────────────────────
+  function wireSegControl(id, onChange) {
+    var container = document.getElementById(id);
+    var buttons = container.querySelectorAll('.seg-btn');
+    buttons.forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        buttons.forEach(function(b) { b.classList.remove('selected'); });
+        btn.classList.add('selected');
+        onChange(btn.dataset.value);
+      });
+    });
+  }
+
+  wireSegControl('payerControl', function(val) { payer = val; });
+  wireSegControl('splitControl', function(val) {
+    splitMode = val;
+    var el = document.getElementById('customSplit');
+    if (val === 'custom') {
+      el.classList.add('visible');
+    } else {
+      el.classList.remove('visible');
+    }
+    validate();
+  });
+
+  // Keep custom split inputs complementary
+  var splitPayerInput = document.getElementById('splitPayer');
+  var splitOtherInput = document.getElementById('splitOther');
+  splitPayerInput.addEventListener('input', function() {
+    var v = parseInt(splitPayerInput.value, 10);
+    if (!isNaN(v) && v >= 0 && v <= 100) {
+      splitOtherInput.value = 100 - v;
+    }
+    validate();
+  });
+  splitOtherInput.addEventListener('input', function() {
+    var v = parseInt(splitOtherInput.value, 10);
+    if (!isNaN(v) && v >= 0 && v <= 100) {
+      splitPayerInput.value = 100 - v;
+    }
+    validate();
+  });
+
+  // ── Amount input ──────────────────────────────────
+  var amountInput = document.getElementById('amount');
+  amountInput.addEventListener('input', validate);
+
+  // ── Validation & MainButton ───────────────────────
+  var hint = document.getElementById('hint');
+
+  function validate() {
+    var amount = parseFloat(amountInput.value);
+    var valid = selectedCat && amount > 0;
+
+    if (splitMode === 'custom') {
+      var sp = parseInt(splitPayerInput.value, 10);
+      var so = parseInt(splitOtherInput.value, 10);
+      if (isNaN(sp) || isNaN(so) || sp < 0 || so < 0 || sp + so !== 100) {
+        valid = false;
+      }
+    }
+
+    if (valid) {
+      tg.MainButton.setText('Submit — ' + currency + ' ' + amount.toFixed(2));
+      tg.MainButton.show();
+      hint.textContent = '';
+    } else {
+      tg.MainButton.hide();
+      if (!selectedCat && !(amount > 0)) {
+        hint.textContent = 'Select a category and enter an amount to continue.';
+      } else if (!selectedCat) {
+        hint.textContent = 'Select a category to continue.';
+      } else {
+        hint.textContent = 'Enter a valid amount to continue.';
+      }
+    }
+  }
+
+  // ── Submit ────────────────────────────────────────
+  tg.MainButton.onClick(function() {
+    var splitPayerPct, splitOtherPct;
+    if (splitMode === '50') {
+      splitPayerPct = 50;
+      splitOtherPct = 50;
+    } else if (splitMode === '100') {
+      splitPayerPct = 100;
+      splitOtherPct = 0;
+    } else {
+      splitPayerPct = parseInt(splitPayerInput.value, 10);
+      splitOtherPct = parseInt(splitOtherInput.value, 10);
+    }
+
+    var data = {
+      category: selectedCat,
+      amount: parseFloat(amountInput.value),
+      currency: currency,
+      description: document.getElementById('description').value.trim() || null,
+      payer: payer,
+      split_payer_pct: splitPayerPct,
+      split_other_pct: splitOtherPct,
+      event_date: dateInput.value || null
+    };
+
+    tg.sendData(JSON.stringify(data));
+  });
+
+  tg.MainButton.setParams({
+    color: tg.themeParams.button_color || '#3390ec',
+    text_color: tg.themeParams.button_text_color || '#ffffff'
+  });
+  tg.MainButton.hide();
+
+  validate();
+})();
+</script>
+</body>
+</html>

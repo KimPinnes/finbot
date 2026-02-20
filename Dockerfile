@@ -33,5 +33,7 @@ COPY entrypoint.sh ./
 RUN chmod +x entrypoint.sh
 
 ENV PYTHONUNBUFFERED=1
+# Ensure 'python -m finbot' finds the package (fallback if install path differs)
+ENV PYTHONPATH=/app/src
 
 ENTRYPOINT ["./entrypoint.sh"]

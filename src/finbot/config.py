@@ -22,6 +22,12 @@ _DEFAULT_CATEGORIES = [
     "utilities",
 ]
 
+# Subtypes of "utilities" (internet, electricity, etc.) — map to category "utilities".
+UTILITY_SUBTYPES: frozenset[str] = frozenset({
+    "electricity", "electric", "water", "internet", "phone", "heating",
+    "trash", "sewage", "broadband",
+})
+
 
 def _strip_str(v: str | object) -> str | object:
     """Strip whitespace from string env values (common .env copy-paste issue)."""
@@ -43,7 +49,7 @@ class Settings(BaseSettings):
 
     # ── Database ──────────────────────────────────────────────────────
     database_url: str = Field(
-        default="postgresql+asyncpg://finbot:finbot@localhost:5432/finbot",
+        default="postgresql+asyncpg://finbot:finbot@localhost:5433/finbot",
         description="Async PostgreSQL connection URI.",
     )
 
@@ -106,6 +112,16 @@ class Settings(BaseSettings):
         if self.default_categories_str.strip():
             return [c.strip().lower() for c in self.default_categories_str.split(",") if c.strip()]
         return list(_DEFAULT_CATEGORIES)
+
+    # ── Mini App ─────────────────────────────────────────────────────
+    webapp_base_url: str = Field(
+        default="",
+        description=(
+            "Base URL of the Telegram Mini App (e.g. "
+            "'https://user.github.io/finbot/webapp/'). "
+            "When empty, the /add command is disabled."
+        ),
+    )
 
     # ── General ───────────────────────────────────────────────────────
     default_currency: str = Field(

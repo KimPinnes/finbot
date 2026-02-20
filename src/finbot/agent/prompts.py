@@ -51,7 +51,7 @@ Analyze the following message from a user and extract all expense information.
 For each expense found, extract:
 - amount (required): The monetary amount as a positive number.
 - currency: Three-letter code. Default "ILS" if not specified.
-- category: A lowercase category label (e.g. "groceries", "gas", "coffee", "dining").
+- category: A lowercase category label (e.g. "groceries", "gas", "coffee", "dining", "utilities"). Treat utility-type expenses (internet, electricity, water, phone, heating) as category "utilities".
 - description: Brief description if the user provided one beyond the category.
 - payer: "user" if the sender paid, "partner" if the other person paid. \
 Leave null if not explicitly stated.

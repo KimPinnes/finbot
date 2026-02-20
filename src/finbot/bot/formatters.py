@@ -11,8 +11,23 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
+from finbot.config import UTILITY_SUBTYPES
+
 if TYPE_CHECKING:
     from finbot.agent.state import PendingExpense
+
+
+def _display_category(
+    category: str | None,
+    category_aliases: dict[str, str] | None = None,
+) -> str | None:
+    """Use canonical category for display; prefer DB alias map, then hardcoded subtypes."""
+    if not category or not category.strip():
+        return category
+    c = category.strip().lower()
+    if category_aliases and c in category_aliases:
+        return category_aliases[c]
+    return "utilities" if c in UTILITY_SUBTYPES else c
 
 
 def format_expense_summary(expenses: list[dict[str, Any]]) -> str:
@@ -47,29 +62,33 @@ def _build_label(
     description: str | None,
     category: str | None,
     known_categories: set[str] | None = None,
+    category_aliases: dict[str, str] | None = None,
 ) -> str:
     """Build a display label showing both description and category.
 
     Returns e.g. ``"Water (utilities)"`` when both exist and differ,
     or just one when only one is present.  Appends a ``[NEW]`` marker
     if the category is not in *known_categories*.
+    Uses *category_aliases* (or hardcoded utility subtypes) for display category.
     """
+    display_cat = _display_category(category, category_aliases=category_aliases)
     cat_tag = ""
-    if category and known_categories is not None and category.lower() not in known_categories:
+    if display_cat and known_categories is not None and display_cat.lower() not in known_categories:
         cat_tag = " [NEW]"
 
-    if description and category and description.lower() != category.lower():
-        return f"{description} ({category}{cat_tag})"
+    if description and display_cat and description.lower() != display_cat.lower():
+        return f"{description} ({display_cat}{cat_tag})"
     if description:
         return description
-    if category:
-        return f"{category}{cat_tag}"
+    if display_cat:
+        return f"{display_cat}{cat_tag}"
     return "expense"
 
 
 def format_confirmation_summary(
     expenses: list[PendingExpense],
     known_categories: set[str] | None = None,
+    category_aliases: dict[str, str] | None = None,
 ) -> str:
     """Format pending expenses into a rich confirmation message.
 
@@ -85,6 +104,7 @@ def format_confirmation_summary(
         expenses: List of :class:`PendingExpense` objects (should be complete).
         known_categories: Optional set of known category names. When provided,
             categories not in this set are visually flagged as new.
+        category_aliases: Optional persistent label→category map (e.g. internet→utilities).
 
     Returns:
         An HTML-formatted string suitable for ``parse_mode=HTML``.
@@ -133,18 +153,20 @@ def format_confirmation_summary(
         date_str = exp.event_date or "today"
 
         # Category + description display (explicitly labeled).
+        # Use persistent alias map or utility subtypes so e.g. internet → utilities.
+        display_cat = _display_category(exp.category, category_aliases=category_aliases)
         cat_tag = ""
         if (
-            exp.category
+            display_cat
             and known_categories is not None
-            and exp.category.lower() not in known_categories
+            and display_cat.lower() not in known_categories
         ):
             cat_tag = " [NEW]"
 
         detail_lines: list[str] = []
-        if exp.category:
-            detail_lines.append(f"   Category: <b>{exp.category}{cat_tag}</b>")
-        if exp.description and exp.description.lower() != (exp.category or "").lower():
+        if display_cat:
+            detail_lines.append(f"   Category: <b>{display_cat}{cat_tag}</b>")
+        if exp.description and exp.description.lower() != (display_cat or "").lower():
             detail_lines.append(f"   Description: {exp.description}")
 
         entry_block = f"{i}. {currency} {amount}\n"

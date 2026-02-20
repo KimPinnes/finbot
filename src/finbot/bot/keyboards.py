@@ -4,7 +4,7 @@ Provides reusable keyboard layouts for the confirmation flow
 (confirm / edit / cancel) used when committing expenses and settlements.
 """
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
 # ── Callback data prefixes ────────────────────────────────────────────────────
 # Each callback encodes an action and an entry identifier so the handler
@@ -44,6 +44,27 @@ def categories_keyboard(categories: list[str]) -> InlineKeyboardMarkup:
     if row:
         buttons.append(row)
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def webapp_keyboard(webapp_url: str) -> InlineKeyboardMarkup:
+    """Build an inline keyboard with a Mini App button for expense entry.
+
+    Args:
+        webapp_url: Full URL (with query params) for the Mini App.
+
+    Returns:
+        An :class:`InlineKeyboardMarkup` with a single WebApp button.
+    """
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="\U0001f4dd Add Expense",
+                    web_app=WebAppInfo(url=webapp_url),
+                ),
+            ]
+        ]
+    )
 
 
 def confirmation_keyboard(entry_id: str = "") -> InlineKeyboardMarkup:

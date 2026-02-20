@@ -98,6 +98,21 @@ class Category(Base):
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
 
 
+class CategoryAlias(Base):
+    """Persistent mapping from a pre-approved label to a canonical category.
+
+    E.g. label='internet' → category='utilities'. Used to normalize parsed
+    or user-entered labels (e.g. "internet") to a category (e.g. "utilities")
+    for display and storage.
+    """
+
+    __tablename__ = "category_aliases"
+
+    label: Mapped[str] = mapped_column(Text, primary_key=True)
+    category: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
+
+
 class Partnership(Base):
     """Links two Telegram users as finance partners."""
 
