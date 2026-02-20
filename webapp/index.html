@@ -294,14 +294,12 @@
   var tg = window.Telegram.WebApp;
   tg.ready();
 
-  // ── Auth guard ──────────────────────────────────────
-  if (!tg.initData || !tg.initDataUnsafe || !tg.initDataUnsafe.user) {
-    document.getElementById('blockedScreen').style.display = 'flex';
-    return;
-  }
-
   document.getElementById('blockedScreen').style.display = 'none';
   tg.expand();
+
+  // API base: passed via ?api= param, or same origin if served locally
+  var params = new URLSearchParams(window.location.search);
+  var API_BASE = params.get('api') || window.location.origin;
 
   // ── Category icon + colour map ────────────────────
   var CATS = {
@@ -331,7 +329,6 @@
   }
 
   // ── Read params from URL ────────────────────────────
-  var params = new URLSearchParams(window.location.search);
   var categories = (params.get('cats') || '').split(',').filter(Boolean);
   var currency = params.get('currency') || 'ILS';
 
@@ -487,7 +484,7 @@
     }
   }
 
-  // ── Submit ─────────────────────────────────────────
+  // ── Submit via API POST ─────────────────────────────
   tg.MainButton.onClick(function() {
     var splitPayerPct, splitOtherPct;
     if (splitMode === '50') {
@@ -501,7 +498,7 @@
       splitOtherPct = parseInt(splitOtherInput.value, 10);
     }
 
-    var data = {
+    var expense = {
       category: selectedCat,
       amount: parseFloat(amountInput.value),
       currency: currency,
@@ -512,7 +509,31 @@
       event_date: dateInput.value || null
     };
 
-    tg.sendData(JSON.stringify(data));
+    tg.MainButton.showProgress();
+
+    fetch(API_BASE + '/api/expense', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        initData: tg.initData,
+        expense: expense
+      })
+    })
+    .then(function(res) { return res.json(); })
+    .then(function(result) {
+      tg.MainButton.hideProgress();
+      if (result.ok) {
+        tg.close();
+      } else {
+        hint.textContent = result.error || 'Submission failed.';
+        tg.MainButton.show();
+      }
+    })
+    .catch(function(err) {
+      tg.MainButton.hideProgress();
+      hint.textContent = 'Network error — check connection.';
+      tg.MainButton.show();
+    });
   });
 
   tg.MainButton.setParams({
