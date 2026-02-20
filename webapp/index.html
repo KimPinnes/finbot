@@ -238,6 +238,7 @@
   <div class="empty-state" id="emptyState" style="display:none">
     <div class="empty-icon">&#x1F4AD;</div>
     <p>No categories loaded.<br>Go back to the bot and tap <b>/add</b> again.</p>
+    <p id="debugUrl" style="margin-top:12px;font-size:11px;word-break:break-all;color:#999;"></p>
   </div>
 </div>
 
@@ -329,29 +330,10 @@
     return CATS[name.toLowerCase()] || DEFAULT_CAT;
   }
 
-  // ── Read params from URL, fallback to last-used (e.g. after reload) ─
-  var STORAGE_KEY = 'finbot_add_params';
+  // ── Read params from URL ────────────────────────────
   var params = new URLSearchParams(window.location.search);
-  var catsFromUrl = (params.get('cats') || '').split(',').filter(Boolean);
-  var currencyFromUrl = params.get('currency') || null;
-
-  var categories, currency;
-  if (catsFromUrl.length > 0) {
-    categories = catsFromUrl;
-    currency = currencyFromUrl || 'ILS';
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ cats: categories, currency: currency }));
-    } catch (e) { /* ignore */ }
-  } else {
-    try {
-      var stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-      categories = Array.isArray(stored.cats) ? stored.cats : [];
-      currency = stored.currency || 'ILS';
-    } catch (e) {
-      categories = [];
-      currency = 'ILS';
-    }
-  }
+  var categories = (params.get('cats') || '').split(',').filter(Boolean);
+  var currency = params.get('currency') || 'ILS';
 
   // ── State ──────────────────────────────────────────
   var selectedCat = null;
@@ -393,6 +375,10 @@
 
   if (categories.length === 0) {
     emptyState.style.display = 'flex';
+    var debugEl = document.getElementById('debugUrl');
+    if (debugEl) {
+      debugEl.textContent = 'Debug: query = ' + (window.location.search || '(none)');
+    }
   } else {
     categories.forEach(function(cat) {
       var info = catInfo(cat);
