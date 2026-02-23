@@ -542,10 +542,11 @@
       tg.MainButton.hideProgress();
       console.error('Expense submit error:', err, 'API_BASE:', API_BASE);
       var msg = (err && err.message) || String(err);
+      var short_api = API_BASE.replace('https://', '');
       if (msg.indexOf('Failed to fetch') !== -1 || msg.indexOf('NetworkError') !== -1 || msg.indexOf('Load failed') !== -1) {
-        hint.textContent = 'Cannot reach API server — is the bot running?';
+        hint.textContent = 'Cannot reach ' + short_api + ' — is the bot running?';
       } else {
-        hint.textContent = 'Request failed: ' + msg;
+        hint.textContent = 'Request failed (' + short_api + '): ' + msg;
       }
       tg.MainButton.show();
     });
