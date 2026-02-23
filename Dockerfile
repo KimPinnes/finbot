@@ -18,9 +18,15 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Runtime dependency for asyncpg
+ARG INSTALL_TUNNEL=false
+
 RUN apt-get update && \
     apt-get install -y --no-install-recommends libpq5 && \
+    if [ "$INSTALL_TUNNEL" = "true" ]; then \
+      apt-get install -y --no-install-recommends nodejs npm && \
+      npm install -g localtunnel && \
+      npm cache clean --force; \
+    fi && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy installed packages from builder

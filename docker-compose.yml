@@ -20,7 +20,10 @@ services:
       retries: 5
 
   finbot:
-    build: .
+    build:
+      context: .
+      args:
+        INSTALL_TUNNEL: "${TUNNEL_ENABLED:-false}"
     restart: unless-stopped
     depends_on:
       db:
@@ -29,6 +32,8 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql+asyncpg://finbot:finbot@db:5432/finbot
+    ports:
+      - "${WEBAPP_PORT:-9876}:${WEBAPP_PORT:-9876}"
     volumes:
       # Mount source for hot-reload during development
       - ./src:/app/src

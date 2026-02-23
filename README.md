@@ -78,6 +78,12 @@ alembic upgrade head
 python -m finbot
 ```
 
+The bot starts a local API server on the port specified by `WEBAPP_PORT` (default `9876`).
+
+#### Tunnel for the Mini App
+
+If the Mini App is hosted externally (e.g. GitHub Pages), it needs a public URL to reach your local API server. Set `TUNNEL_ENABLED=true` in `.env` and the bot will auto-start a [localtunnel](https://github.com/localtunnel/localtunnel) on boot, logging the public URL. Requires `lt` (`npm install -g localtunnel`) or `npx`.
+
 ## Docker Deployment
 
 ### Development (app + DB)

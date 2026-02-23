@@ -130,6 +130,23 @@ class Settings(BaseSettings):
             "When empty, the Mini App uses its own origin (same-origin serving)."
         ),
     )
+    webapp_port: int = Field(
+        default=9876,
+        description="Port for the Mini App API server.",
+    )
+
+    # ── Tunnel ────────────────────────────────────────────────────────
+    tunnel_enabled: bool = Field(
+        default=False,
+        description=(
+            "Start a localtunnel on boot to expose the API server publicly. "
+            "Requires `lt` CLI (npm install -g localtunnel) or `npx`."
+        ),
+    )
+    tunnel_subdomain: str = Field(
+        default="",
+        description="Request a specific localtunnel subdomain for a stable URL.",
+    )
 
     # ── General ───────────────────────────────────────────────────────
     default_currency: str = Field(

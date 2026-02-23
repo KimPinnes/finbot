@@ -3,9 +3,14 @@
 Creates the aiogram :class:`Bot` and :class:`Dispatcher`, registers routers
 and middleware, and exposes :func:`run_bot` to start long-polling.
 
-Also starts a lightweight aiohttp server on ``WEBAPP_PORT`` (default 8080)
-that serves the Mini App static files and a POST ``/api/expense`` endpoint
-so the Mini App can submit expenses without relying on ``sendData()``.
+Also starts a lightweight aiohttp server on the port specified by
+``WEBAPP_PORT`` (default 9876) that serves the Mini App static files and
+a POST ``/api/expense`` endpoint so the Mini App can submit expenses
+without relying on ``sendData()``.
+
+When ``TUNNEL_ENABLED=true``, a localtunnel subprocess is spawned to
+expose the local API server via a public HTTPS URL so the
+GitHub-Pages-hosted Mini App can reach it.
 """
 
 from __future__ import annotations
@@ -22,6 +27,7 @@ from aiogram.types import BotCommand, MenuButtonWebApp, WebAppInfo
 
 from finbot.bot.handlers import router as main_router
 from finbot.bot.middleware import AccessControlMiddleware, DbSessionMiddleware
+from finbot.bot.tunnel import start_tunnel, stop_tunnel
 from finbot.bot.webapp_api import create_webapp_server
 from finbot.config import settings
 from finbot.db.session import engine, get_session
@@ -29,8 +35,6 @@ from finbot.ledger.models import Category
 from finbot.ledger.repository import save_category
 
 logger = logging.getLogger(__name__)
-
-WEBAPP_PORT = 8080
 
 
 async def _set_menu_button_webapp(bot: Bot) -> None:
@@ -139,12 +143,19 @@ async def run_bot() -> None:
     webapp = create_webapp_server(bot)
     runner = web.AppRunner(webapp)
     await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", WEBAPP_PORT)
+    site = web.TCPSite(runner, "0.0.0.0", settings.webapp_port)
     await site.start()
-    logger.info("Mini App API server running on http://0.0.0.0:%d", WEBAPP_PORT)
+    logger.info("Mini App API server running on http://0.0.0.0:%d", settings.webapp_port)
+
+    if settings.tunnel_enabled:
+        tunnel_url = await start_tunnel(settings.webapp_port, settings.tunnel_subdomain)
+        if tunnel_url:
+            settings.webapp_api_url = tunnel_url
 
     try:
         await dp.start_polling(bot)
     finally:
+        if settings.tunnel_enabled:
+            await stop_tunnel()
         await runner.cleanup()
         await bot.session.close()

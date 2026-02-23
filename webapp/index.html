@@ -513,7 +513,10 @@
 
     fetch(API_BASE + '/api/expense', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Bypass-Tunnel-Reminder': 'true'
+      },
       body: JSON.stringify({
         initData: tg.initData,
         expense: expense
