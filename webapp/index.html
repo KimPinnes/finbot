@@ -522,19 +522,31 @@
         expense: expense
       })
     })
-    .then(function(res) { return res.json(); })
+    .then(function(res) {
+      var contentType = res.headers.get('content-type') || '';
+      if (contentType.indexOf('application/json') === -1) {
+        throw new Error('Server returned non-JSON (status ' + res.status + '). API may be unreachable.');
+      }
+      return res.json().then(function(body) { return { status: res.status, body: body }; });
+    })
     .then(function(result) {
       tg.MainButton.hideProgress();
-      if (result.ok) {
+      if (result.body.ok) {
         tg.close();
       } else {
-        hint.textContent = result.error || 'Submission failed.';
+        hint.textContent = result.body.error || 'Submission failed (status ' + result.status + ').';
         tg.MainButton.show();
       }
     })
     .catch(function(err) {
       tg.MainButton.hideProgress();
-      hint.textContent = 'Network error — check connection.';
+      console.error('Expense submit error:', err, 'API_BASE:', API_BASE);
+      var msg = (err && err.message) || String(err);
+      if (msg.indexOf('Failed to fetch') !== -1 || msg.indexOf('NetworkError') !== -1 || msg.indexOf('Load failed') !== -1) {
+        hint.textContent = 'Cannot reach API server — is the bot running?';
+      } else {
+        hint.textContent = 'Request failed: ' + msg;
+      }
       tg.MainButton.show();
     });
   });
